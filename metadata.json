@@ -1,0 +1,7 @@
+{
+  "name": "Remix: Web DAW",
+  "description": "jray.me daw",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
