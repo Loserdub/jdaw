@@ -258,7 +258,7 @@ export function Timeline({ scrollRef, onScroll }: TimelineProps) {
           <div 
             key={track.id} 
             className="border-b border-white/5 bg-white/[0.01] relative group"
-            style={{ height: `${200 + (track.effects.length * 180)}px` }}
+            style={{ height: '140px' }}
             onDrop={(e) => handleDrop(e, track.id)}
             onDragOver={handleDragOver}
             onContextMenu={(e) => handleTrackContextMenu(e, track.id)}
@@ -287,7 +287,7 @@ export function Timeline({ scrollRef, onScroll }: TimelineProps) {
             {/* Real-time recording region */}
             {isRecording && armedTrackId === track.id && playheadTime > recordStartTime && (
               <div 
-                className="absolute top-2 h-[132px] bg-red-500/20 border border-red-500/50 rounded-xl overflow-hidden shadow-[inset_0_0_12px_rgba(239,68,68,0.2)] z-10 backdrop-blur-sm"
+                className="absolute top-2 h-[124px] bg-red-500/20 border border-red-500/50 rounded-xl overflow-hidden shadow-[inset_0_0_12px_rgba(239,68,68,0.2)] z-10 backdrop-blur-sm"
                 style={{
                   left: `${recordStartTime * PIXELS_PER_SECOND}px`,
                   width: `${(playheadTime - recordStartTime) * PIXELS_PER_SECOND}px`

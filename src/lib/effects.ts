@@ -3,10 +3,10 @@ import { AudioEffect } from './store';
 export abstract class BaseEffect {
   input: GainNode;
   output: GainNode;
-  ctx: AudioContext;
+  ctx: BaseAudioContext;
   enabled: boolean = true;
 
-  constructor(ctx: AudioContext) {
+  constructor(ctx: BaseAudioContext) {
     this.ctx = ctx;
     this.input = ctx.createGain();
     this.output = ctx.createGain();
@@ -32,7 +32,7 @@ export class ReverbEffect extends BaseEffect {
   wetGain: GainNode;
   dryGain: GainNode;
 
-  constructor(ctx: AudioContext) {
+  constructor(ctx: BaseAudioContext) {
     super(ctx);
     this.convolver = ctx.createConvolver();
     this.wetGain = ctx.createGain();
@@ -92,7 +92,7 @@ export class DelayEffect extends BaseEffect {
   wetGain: GainNode;
   dryGain: GainNode;
 
-  constructor(ctx: AudioContext) {
+  constructor(ctx: BaseAudioContext) {
     super(ctx);
     this.delay = ctx.createDelay(5.0);
     this.feedback = ctx.createGain();
@@ -138,7 +138,7 @@ export class EQEffect extends BaseEffect {
   mid: BiquadFilterNode;
   high: BiquadFilterNode;
 
-  constructor(ctx: AudioContext) {
+  constructor(ctx: BaseAudioContext) {
     super(ctx);
     this.low = ctx.createBiquadFilter();
     this.low.type = 'lowshelf';
@@ -184,7 +184,7 @@ export class EQEffect extends BaseEffect {
 export class CompressorEffect extends BaseEffect {
   compressor: DynamicsCompressorNode;
 
-  constructor(ctx: AudioContext) {
+  constructor(ctx: BaseAudioContext) {
     super(ctx);
     this.compressor = ctx.createDynamicsCompressor();
     this.updateRouting();
@@ -211,7 +211,7 @@ export class CompressorEffect extends BaseEffect {
   }
 }
 
-export function createEffect(ctx: AudioContext, type: string): BaseEffect {
+export function createEffect(ctx: BaseAudioContext, type: string): BaseEffect {
   switch (type) {
     case 'reverb': return new ReverbEffect(ctx);
     case 'delay': return new DelayEffect(ctx);
@@ -222,13 +222,13 @@ export function createEffect(ctx: AudioContext, type: string): BaseEffect {
 }
 
 export class EffectChain {
-  ctx: AudioContext;
+  ctx: BaseAudioContext;
   input: GainNode;
   output: GainNode;
   effects: Map<string, BaseEffect> = new Map();
   effectOrder: string[] = [];
 
-  constructor(ctx: AudioContext) {
+  constructor(ctx: BaseAudioContext) {
     this.ctx = ctx;
     this.input = ctx.createGain();
     this.output = ctx.createGain();

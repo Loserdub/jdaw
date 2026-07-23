@@ -29,7 +29,7 @@ export function RegionView({ region, pixelsPerSecond, onContextMenu }: RegionVie
     if (!ctx) return;
 
     const width = region.duration * pixelsPerSecond;
-    const height = 132; // Updated to match new track height (148px - 16px padding)
+    const height = 124; // Updated to match fixed track height (140px - 16px padding)
     
     canvas.width = width;
     canvas.height = height;
@@ -170,7 +170,7 @@ export function RegionView({ region, pixelsPerSecond, onContextMenu }: RegionVie
       draggable
       onDragStart={handleDragStart}
       onContextMenu={(e) => onContextMenu?.(e, region.id)}
-      className={`absolute top-2 h-[132px] border rounded-xl overflow-hidden shadow-[0_4px_12px_rgba(0,0,0,0.2)] backdrop-blur-md cursor-grab active:cursor-grabbing group transition-all hover:shadow-[0_8px_24px_rgba(0,0,0,0.3)] ${region.buffer ? 'bg-sky-500/10 border-sky-400/30 hover:border-sky-400/60' : 'bg-indigo-500/10 border-indigo-400/30 hover:border-indigo-400/60'}`}
+      className={`absolute top-2 h-[124px] border rounded-xl overflow-hidden shadow-[0_4px_12px_rgba(0,0,0,0.2)] backdrop-blur-md cursor-grab active:cursor-grabbing group transition-all hover:shadow-[0_8px_24px_rgba(0,0,0,0.3)] ${region.buffer ? 'bg-sky-500/10 border-sky-400/30 hover:border-sky-400/60' : 'bg-indigo-500/10 border-indigo-400/30 hover:border-indigo-400/60'}`}
       style={{
         left: `${region.start * pixelsPerSecond}px`,
         width: `${region.duration * pixelsPerSecond}px`

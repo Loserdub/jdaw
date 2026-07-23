@@ -11,6 +11,14 @@ export interface AudioEffect {
   params: Record<string, number>;
 }
 
+export type SynthOscillatorType = 'sine' | 'square' | 'sawtooth' | 'triangle';
+
+export interface SynthSettings {
+  oscillatorType: SynthOscillatorType;
+  attack: number;
+  release: number;
+}
+
 export interface Track {
   id: string;
   name: string;
@@ -22,6 +30,7 @@ export interface Track {
   inputType: InputType;
   effects: AudioEffect[];
   sends: { busId: string; amount: number }[];
+  synthSettings: SynthSettings;
 }
 
 export interface Bus {
@@ -62,10 +71,13 @@ interface DAWState {
   duration: number; // total duration of the project in seconds
   bpm: number;
   metronomeEnabled: boolean;
+  selectedTrackId: string | null;
   
   addTrack: () => void;
   removeTrack: (id: string) => void;
   updateTrack: (id: string, updates: Partial<Track>) => void;
+  updateTrackSynthSettings: (trackId: string, updates: Partial<SynthSettings>) => void;
+  setSelectedTrackId: (id: string | null) => void;
   addTrackEffect: (trackId: string, type: EffectType) => void;
   updateTrackEffect: (trackId: string, effectId: string, updates: Partial<AudioEffect>) => void;
   removeTrackEffect: (trackId: string, effectId: string) => void;
@@ -117,9 +129,11 @@ const defaultEffectParams: Record<EffectType, Record<string, number>> = {
   compressor: { threshold: -24, knee: 30, ratio: 12, attack: 0.003, release: 0.25 }
 };
 
+const initialTrackId = generateId();
+
 export const useDAWStore = create<DAWState>((set) => ({
   tracks: [
-    { id: generateId(), name: 'Audio 1', volume: 0.8, pan: 0, muted: false, solo: false, armed: false, inputType: 'microphone', effects: [], sends: [] }
+    { id: initialTrackId, name: 'Audio 1', volume: 0.8, pan: 0, muted: false, solo: false, armed: false, inputType: 'microphone', effects: [], sends: [], synthSettings: { oscillatorType: 'square', attack: 0.01, release: 0.1 } }
   ],
   buses: [],
   master: { id: 'master', name: 'Master', volume: 1.0, pan: 0, muted: false, solo: false, effects: [] },
@@ -135,19 +149,38 @@ export const useDAWStore = create<DAWState>((set) => ({
   loopStart: 0,
   loopEnd: 4,
   clipboardRegion: null,
+  selectedTrackId: initialTrackId,
   
-  addTrack: () => set((state) => ({
-    tracks: [...state.tracks, { id: generateId(), name: `Audio ${state.tracks.length + 1}`, volume: 0.8, pan: 0, muted: false, solo: false, armed: false, inputType: 'microphone', effects: [], sends: [] }]
-  })),
+  addTrack: () => set((state) => {
+    const newId = generateId();
+    return {
+      tracks: [...state.tracks, { id: newId, name: `Audio ${state.tracks.length + 1}`, volume: 0.8, pan: 0, muted: false, solo: false, armed: false, inputType: 'microphone', effects: [], sends: [], synthSettings: { oscillatorType: 'square', attack: 0.01, release: 0.1 } }],
+      selectedTrackId: state.selectedTrackId ? state.selectedTrackId : newId
+    };
+  }),
   
-  removeTrack: (id) => set((state) => ({
-    tracks: state.tracks.filter(t => t.id !== id),
-    regions: state.regions.filter(r => r.trackId !== id)
-  })),
+  removeTrack: (id) => set((state) => {
+    const newTracks = state.tracks.filter(t => t.id !== id);
+    let newSelectedId = state.selectedTrackId;
+    if (state.selectedTrackId === id) {
+      newSelectedId = newTracks.length > 0 ? newTracks[0].id : null;
+    }
+    return {
+      tracks: newTracks,
+      regions: state.regions.filter(r => r.trackId !== id),
+      selectedTrackId: newSelectedId
+    };
+  }),
   
   updateTrack: (id, updates) => set((state) => ({
     tracks: state.tracks.map(t => t.id === id ? { ...t, ...updates } : t)
   })),
+
+  updateTrackSynthSettings: (trackId, updates) => set((state) => ({
+    tracks: state.tracks.map(t => t.id === trackId ? { ...t, synthSettings: { ...t.synthSettings, ...updates } } : t)
+  })),
+
+  setSelectedTrackId: (selectedTrackId) => set({ selectedTrackId }),
 
   addTrackEffect: (trackId, type) => set((state) => ({
     tracks: state.tracks.map(t => t.id === trackId ? {

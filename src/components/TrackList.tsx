@@ -10,7 +10,7 @@ interface TrackListProps {
 }
 
 export function TrackList({ scrollRef, onScroll }: TrackListProps) {
-  const { tracks, updateTrack, removeTrack, addTrack, addTrackEffect, updateTrackEffect, removeTrackEffect } = useDAWStore();
+  const { tracks, updateTrack, removeTrack, addTrack, selectedTrackId, setSelectedTrackId } = useDAWStore();
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, trackId: string) => {
     const file = e.target.files?.[0];
@@ -73,10 +73,15 @@ export function TrackList({ scrollRef, onScroll }: TrackListProps) {
         {tracks.map(track => (
           <div 
             key={track.id} 
-            className="p-4 border-b border-white/5 bg-white/[0.02] hover:bg-white/[0.04] transition-colors group flex flex-col"
-            style={{ height: `${200 + (track.effects.length * 180)}px` }}
+            onClick={() => setSelectedTrackId(track.id)}
+            className={`p-4 border-b transition-all group flex flex-col cursor-pointer ${
+              selectedTrackId === track.id 
+                ? 'bg-white/[0.06] border-l-4 border-l-sky-400 border-white/10' 
+                : 'bg-white/[0.02] hover:bg-white/[0.04] border-white/5'
+            }`}
+            style={{ height: '140px' }}
           >
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-2" onClick={(e) => e.stopPropagation()}>
               <input 
                 type="text" 
                 value={track.name} 
@@ -93,13 +98,16 @@ export function TrackList({ scrollRef, onScroll }: TrackListProps) {
                   <option value="midi">MIDI</option>
                   <option value="file">File</option>
                 </select>
-                <button onClick={() => removeTrack(track.id)} className="text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1">
+                <button 
+                  onClick={(e) => { e.stopPropagation(); removeTrack(track.id); }} 
+                  className="text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                >
                   <Trash2 size={14} />
                 </button>
               </div>
             </div>
             
-            <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center gap-2 mb-2" onClick={(e) => e.stopPropagation()}>
               <button 
                 onClick={() => updateTrack(track.id, { muted: !track.muted })}
                 className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold transition-all ${track.muted ? 'active-state text-amber-400 border-amber-500/50' : 'skeuo-button text-slate-400'}`}
@@ -130,23 +138,16 @@ export function TrackList({ scrollRef, onScroll }: TrackListProps) {
               </label>
             </div>
             
-            <div className="flex items-center gap-3 skeuo-input px-3 py-2 rounded-xl mb-3">
+            <div className="flex items-center gap-3 skeuo-input px-3 py-1.5 rounded-xl" onClick={(e) => e.stopPropagation()}>
               <Volume2 size={14} className="text-slate-400 shrink-0" />
               <input 
                 type="range" 
                 min="0" max="1" step="0.01" 
                 value={track.volume}
                 onChange={(e) => updateTrack(track.id, { volume: parseFloat(e.target.value) })}
-                className="w-full h-1.5 bg-black/50 rounded-full appearance-none cursor-pointer accent-sky-400"
+                className="w-full h-1 bg-black/50 rounded-full appearance-none cursor-pointer accent-sky-400"
               />
             </div>
-
-            <EffectRack
-              effects={track.effects}
-              onAddEffect={(type) => addTrackEffect(track.id, type)}
-              onUpdateEffect={(effectId, updates) => updateTrackEffect(track.id, effectId, updates)}
-              onRemoveEffect={(effectId) => removeTrackEffect(track.id, effectId)}
-            />
           </div>
         ))}
       </div>

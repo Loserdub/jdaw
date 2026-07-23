@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import React, { useState, useRef } from 'react';
 import { Transport } from './components/Transport';
 import { TrackList } from './components/TrackList';
 import { Timeline } from './components/Timeline';
 import { MasterPanel } from './components/MasterPanel';
+import { BottomPanel } from './components/BottomPanel';
 import { Download } from 'lucide-react';
 import { engine } from './lib/engine';
-import { useState, useRef } from 'react';
 
 export default function App() {
   const [isExporting, setIsExporting] = useState(false);
@@ -44,11 +45,11 @@ export default function App() {
     <div className="flex flex-col h-screen font-sans overflow-hidden p-4 gap-4">
       <header className="glass-panel rounded-3xl flex items-center justify-between px-6 py-4 shrink-0">
         <h1 className="text-2xl font-bold tracking-tight text-sky-400 drop-shadow-[0_0_8px_rgba(56,189,248,0.5)]">
-          <a href="https://www.jray.me" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 hover:text-sky-300 transition-colors cursor-pointer">
+          <a href="https://trustnodelogic.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 hover:text-sky-300 transition-colors cursor-pointer">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M2 12h4l3-9 5 18 3-9h5"/>
             </svg>
-            J-WAVE
+            J-DAW
           </a>
         </h1>
         <Transport />
@@ -73,6 +74,8 @@ export default function App() {
           <MasterPanel />
         </div>
       </div>
+
+      <BottomPanel />
     </div>
   );
 }

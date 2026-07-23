@@ -332,12 +332,15 @@ export class AudioEngine {
   }
 
   playMidiNote(note: number, velocity: number, trackId: string) {
+    const track = useDAWStore.getState().tracks.find(t => t.id === trackId);
+    const settings = track?.synthSettings || { oscillatorType: 'square', attack: 0.01, release: 0.1 };
+
     const trackGain = this.trackGains.get(trackId) || this.masterGain;
     
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
     
-    osc.type = 'square';
+    osc.type = settings.oscillatorType;
     osc.frequency.value = 440 * Math.pow(2, (note - 69) / 12);
     
     osc.connect(gain);
@@ -345,7 +348,7 @@ export class AudioEngine {
     
     const velocityNormalized = velocity / 127;
     gain.gain.setValueAtTime(0, this.ctx.currentTime);
-    gain.gain.linearRampToValueAtTime(velocityNormalized * 0.5, this.ctx.currentTime + 0.01);
+    gain.gain.linearRampToValueAtTime(velocityNormalized * 0.5, this.ctx.currentTime + settings.attack);
     
     osc.start();
     
@@ -365,8 +368,15 @@ export class AudioEngine {
     const activeNote = this.activeMidiNotes.get(note);
     if (activeNote) {
       const { osc, gain } = activeNote;
-      gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.1);
-      osc.stop(this.ctx.currentTime + 0.1);
+      
+      const state = useDAWStore.getState();
+      const armedTrack = state.tracks.find(t => t.armed && t.inputType === 'midi');
+      const activeTrack = armedTrack || state.tracks.find(t => t.id === state.selectedTrackId);
+      const release = activeTrack?.synthSettings?.release ?? 0.1;
+
+      gain.gain.setValueAtTime(gain.gain.value, this.ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + release);
+      osc.stop(this.ctx.currentTime + release);
       this.activeMidiNotes.delete(note);
       
       if (useDAWStore.getState().isRecording) {
@@ -427,6 +437,8 @@ export class AudioEngine {
         } else if (region.midiNotes) {
           // Schedule MIDI notes
           const oscillators: { osc: OscillatorNode, gain: GainNode }[] = [];
+          const track = state.tracks.find(t => t.id === region.trackId);
+          const settings = track?.synthSettings || { oscillatorType: 'square', attack: 0.01, release: 0.1 };
           
           region.midiNotes.forEach(note => {
             const noteAbsoluteStart = region.start + note.start;
@@ -436,7 +448,7 @@ export class AudioEngine {
               const osc = this.ctx.createOscillator();
               const gain = this.ctx.createGain();
               
-              osc.type = 'square';
+              osc.type = settings.oscillatorType;
               osc.frequency.value = 440 * Math.pow(2, (note.note - 69) / 12);
               
               osc.connect(gain);
@@ -455,9 +467,12 @@ export class AudioEngine {
               const startTime = this.ctx.currentTime + delay;
               const velocityNormalized = note.velocity / 127;
               
+              const attackTime = Math.min(settings.attack, duration * 0.5);
+              const releaseTime = Math.min(settings.release, duration * 0.5);
+
               gain.gain.setValueAtTime(0, startTime);
-              gain.gain.linearRampToValueAtTime(velocityNormalized * 0.5, startTime + 0.01);
-              gain.gain.setValueAtTime(velocityNormalized * 0.5, startTime + duration - 0.01);
+              gain.gain.linearRampToValueAtTime(velocityNormalized * 0.5, startTime + attackTime);
+              gain.gain.setValueAtTime(velocityNormalized * 0.5, startTime + duration - releaseTime);
               gain.gain.linearRampToValueAtTime(0, startTime + duration);
               
               osc.start(startTime);
@@ -819,11 +834,14 @@ export class AudioEngine {
         source.connect(trackGain);
         source.start(region.start, region.bufferOffset || 0, region.duration);
       } else if (region.midiNotes) {
+        const track = state.tracks.find(t => t.id === region.trackId);
+        const settings = track?.synthSettings || { oscillatorType: 'square', attack: 0.01, release: 0.1 };
+
         region.midiNotes.forEach(note => {
           const osc = offlineCtx.createOscillator();
           const gain = offlineCtx.createGain();
           
-          osc.type = 'square';
+          osc.type = settings.oscillatorType;
           osc.frequency.value = 440 * Math.pow(2, (note.note - 69) / 12);
           
           osc.connect(gain);
@@ -832,9 +850,12 @@ export class AudioEngine {
           const startTime = region.start + note.start;
           const velocityNormalized = note.velocity / 127;
           
+          const attackTime = Math.min(settings.attack, note.duration * 0.5);
+          const releaseTime = Math.min(settings.release, note.duration * 0.5);
+
           gain.gain.setValueAtTime(0, startTime);
-          gain.gain.linearRampToValueAtTime(velocityNormalized * 0.5, startTime + 0.01);
-          gain.gain.setValueAtTime(velocityNormalized * 0.5, startTime + note.duration - 0.01);
+          gain.gain.linearRampToValueAtTime(velocityNormalized * 0.5, startTime + attackTime);
+          gain.gain.setValueAtTime(velocityNormalized * 0.5, startTime + note.duration - releaseTime);
           gain.gain.linearRampToValueAtTime(0, startTime + note.duration);
           
           osc.start(startTime);
