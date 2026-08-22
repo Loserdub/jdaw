@@ -1,10 +1,16 @@
-import { Play, Square, Circle, Rewind, FastForward, Repeat, Bell, Magnet } from 'lucide-react';
+import { Play, Square, Circle, Rewind, Repeat, Bell, Magnet } from 'lucide-react';
 import { useDAWStore } from '../lib/store';
 import { engine } from '../lib/engine';
 import React, { useEffect, useState, useRef } from 'react';
 
 export function Transport() {
-  const { isPlaying, isRecording, setPlaying, setRecording, loopEnabled, setLoopEnabled, bpm, setBpm, metronomeEnabled, setMetronomeEnabled, snapToGrid, setSnapToGrid, duration, loopStart, loopEnd, setLoopRegion } = useDAWStore();
+  const {
+    isPlaying, isRecording, setPlaying, setRecording,
+    loopEnabled, setLoopEnabled, bpm, setBpm,
+    metronomeEnabled, setMetronomeEnabled,
+    snapToGrid, setSnapToGrid,
+    duration, loopStart, loopEnd, setLoopRegion
+  } = useDAWStore();
   const [time, setTime] = useState(0);
   const [draggingLoop, setDraggingLoop] = useState<'start' | 'end' | 'both' | null>(null);
   const [dragOffset, setDragOffset] = useState(0);
@@ -37,9 +43,7 @@ export function Transport() {
       }
     };
 
-    const handleMouseUp = () => {
-      setDraggingLoop(null);
-    };
+    const handleMouseUp = () => setDraggingLoop(null);
 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
@@ -80,9 +84,7 @@ export function Transport() {
   const handleStop = () => {
     engine.stop();
     setPlaying(false);
-    if (isRecording) {
-      setRecording(false);
-    }
+    if (isRecording) setRecording(false);
     engine.setPlayhead(0);
     setTime(0);
   };
@@ -94,7 +96,6 @@ export function Transport() {
     } else {
       const state = useDAWStore.getState();
       const armedTrack = state.tracks.find(t => t.armed);
-      
       if (!armedTrack) {
         engine.play();
         setPlaying(true);
@@ -104,111 +105,138 @@ export function Transport() {
     }
   };
 
+  /* ── Shared icon-button style ── */
+  const iconBtn = (active = false, danger = false) =>
+    `p-2 rounded-lg transition-all min-w-[36px] min-h-[36px] flex items-center justify-center skeuo-button ${
+      active && danger
+        ? 'bg-red-500/15 border-red-500/40 text-red-400 animate-pulse'
+        : active
+        ? 'active-state text-amber-400'
+        : 'text-zinc-400 hover:text-zinc-200'
+    }`;
+
   return (
-    <div className="flex items-center gap-6 text-slate-100">
-      <div className="flex items-center gap-2">
-        <button onClick={() => { engine.setPlayhead(0); setTime(0); }} className="p-2 skeuo-button rounded-xl text-slate-300">
-          <Rewind size={20} />
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-zinc-100">
+      {/* ── Playback controls ── */}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => { engine.setPlayhead(0); setTime(0); }}
+          className={iconBtn()}
+          title="Return to zero"
+        >
+          <Rewind size={16} />
         </button>
-        <button onClick={handlePlay} className={`p-2 skeuo-button rounded-xl ${isPlaying && !isRecording ? 'active-state text-sky-400' : 'text-slate-300'}`}>
-          <Play size={20} fill={isPlaying && !isRecording ? 'currentColor' : 'none'} />
+        <button
+          onClick={handlePlay}
+          className={iconBtn(isPlaying && !isRecording)}
+          title={isPlaying ? 'Pause' : 'Play'}
+        >
+          <Play size={16} fill={isPlaying && !isRecording ? 'currentColor' : 'none'} />
         </button>
-        <button onClick={handleStop} className="p-2 skeuo-button rounded-xl text-slate-300">
-          <Square size={20} fill="currentColor" />
+        <button
+          onClick={handleStop}
+          className={iconBtn()}
+          title="Stop"
+        >
+          <Square size={16} fill="currentColor" />
         </button>
-        <button onClick={handleRecord} className={`p-2 skeuo-button rounded-xl ${isRecording ? 'active-state text-red-400 animate-pulse border-red-500/50' : 'text-red-400/70'}`}>
-          <Circle size={20} fill="currentColor" />
+        <button
+          onClick={handleRecord}
+          className={iconBtn(isRecording, true)}
+          title={isRecording ? 'Stop recording' : 'Record'}
+        >
+          <Circle size={16} fill="currentColor" />
         </button>
-        
-        <div className="w-px h-8 bg-white/10 mx-2" />
-        
-        <div className="flex items-center gap-3 skeuo-input px-3 py-2 rounded-xl">
-          <button 
-            onClick={() => setLoopEnabled(!loopEnabled)} 
-            className={`p-1.5 rounded-lg transition-colors ${loopEnabled ? 'text-sky-400 bg-sky-400/10 shadow-[inset_0_0_8px_rgba(56,189,248,0.2)]' : 'text-slate-400 hover:text-slate-200'}`}
-            title="Toggle Loop"
+      </div>
+
+      {/* ── Time display ── */}
+      <div
+        className="font-mono text-lg md:text-xl tracking-widest text-amber-400 glow-amber skeuo-input px-3 py-1.5 rounded-xl tabular-nums shrink-0"
+      >
+        {formatTime(time)}
+      </div>
+
+      {/* ── Loop region ── */}
+      <div className="flex items-center gap-2 skeuo-input px-2.5 py-1.5 rounded-xl">
+        <button
+          onClick={() => setLoopEnabled(!loopEnabled)}
+          className={`p-1.5 rounded-md transition-colors ${loopEnabled ? 'text-amber-400 bg-amber-400/10' : 'text-zinc-500 hover:text-zinc-300'}`}
+          title="Toggle Loop"
+        >
+          <Repeat size={14} />
+        </button>
+
+        <div className="flex flex-col gap-1">
+          <div
+            ref={loopSliderRef}
+            className="relative w-28 md:w-36 h-2.5 bg-black/50 rounded-full border border-white/5 cursor-pointer"
+            onMouseDown={(e) => {
+              if (!loopSliderRef.current) return;
+              const rect = loopSliderRef.current.getBoundingClientRect();
+              const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+              const time = (x / rect.width) * duration;
+              if (time < loopStart) {
+                setLoopRegion(time, loopEnd); setDraggingLoop('start');
+              } else if (time > loopEnd) {
+                setLoopRegion(loopStart, time); setDraggingLoop('end');
+              } else {
+                handleLoopDragStart(e, 'both');
+              }
+            }}
           >
-            <Repeat size={18} />
-          </button>
-          
-          <div className="flex flex-col gap-1.5">
-            <div 
-              ref={loopSliderRef}
-              className="relative w-36 h-3 bg-black/40 rounded-full border border-white/5 cursor-pointer shadow-[inset_0_1px_3px_rgba(0,0,0,0.5)]"
-              onMouseDown={(e) => {
-                if (!loopSliderRef.current) return;
-                const rect = loopSliderRef.current.getBoundingClientRect();
-                const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-                const time = (x / rect.width) * duration;
-                
-                if (time < loopStart) {
-                  setLoopRegion(time, loopEnd);
-                  setDraggingLoop('start');
-                } else if (time > loopEnd) {
-                  setLoopRegion(loopStart, time);
-                  setDraggingLoop('end');
-                } else {
-                  handleLoopDragStart(e, 'both');
-                }
+            <div
+              className={`absolute top-0 bottom-0 rounded-full border-x cursor-move ${
+                loopEnabled ? 'bg-amber-500/30 border-amber-400/50' : 'bg-zinc-600/30 border-zinc-500/40'
+              }`}
+              style={{
+                left: `${(loopStart / duration) * 100}%`,
+                width: `${((loopEnd - loopStart) / duration) * 100}%`
               }}
+              onMouseDown={(e) => handleLoopDragStart(e, 'both')}
             >
-              <div 
-                className={`absolute top-0 bottom-0 ${loopEnabled ? 'bg-sky-500/40 border-sky-400/50' : 'bg-slate-600/40 border-slate-500/50'} border-x cursor-move rounded-full`}
-                style={{
-                  left: `${(loopStart / duration) * 100}%`,
-                  width: `${((loopEnd - loopStart) / duration) * 100}%`
-                }}
-                onMouseDown={(e) => handleLoopDragStart(e, 'both')}
-              >
-                <div 
-                  className={`absolute top-0 bottom-0 left-0 w-3 -ml-1.5 cursor-ew-resize rounded-full ${loopEnabled ? 'hover:bg-sky-400' : 'hover:bg-slate-400'}`}
-                  onMouseDown={(e) => handleLoopDragStart(e, 'start')}
-                />
-                <div 
-                  className={`absolute top-0 bottom-0 right-0 w-3 -mr-1.5 cursor-ew-resize rounded-full ${loopEnabled ? 'hover:bg-sky-400' : 'hover:bg-slate-400'}`}
-                  onMouseDown={(e) => handleLoopDragStart(e, 'end')}
-                />
-              </div>
+              <div
+                className={`absolute top-0 bottom-0 left-0 w-3 -ml-1.5 cursor-ew-resize rounded-full ${loopEnabled ? 'hover:bg-amber-400' : 'hover:bg-zinc-400'}`}
+                onMouseDown={(e) => handleLoopDragStart(e, 'start')}
+              />
+              <div
+                className={`absolute top-0 bottom-0 right-0 w-3 -mr-1.5 cursor-ew-resize rounded-full ${loopEnabled ? 'hover:bg-amber-400' : 'hover:bg-zinc-400'}`}
+                onMouseDown={(e) => handleLoopDragStart(e, 'end')}
+              />
             </div>
-            <div className="flex justify-between text-[10px] font-mono text-slate-400 leading-none px-1">
-              <span>{loopStart.toFixed(1)}s</span>
-              <span>{loopEnd.toFixed(1)}s</span>
-            </div>
+          </div>
+          <div className="flex justify-between text-[9px] font-mono text-zinc-500 px-0.5">
+            <span>{loopStart.toFixed(1)}s</span>
+            <span>{loopEnd.toFixed(1)}s</span>
           </div>
         </div>
       </div>
-      
-      <div className="font-mono text-3xl tracking-wider text-sky-400 skeuo-input px-6 py-2 rounded-xl drop-shadow-[0_0_8px_rgba(56,189,248,0.3)]">
-        {formatTime(time)}
-      </div>
-      
-      <div className="flex items-center gap-4 text-sm text-slate-400">
-        <div className="flex items-center gap-2 skeuo-input px-3 py-1.5 rounded-xl">
-          <button 
-            onClick={() => setSnapToGrid(!snapToGrid)}
-            className={`p-1.5 rounded-lg transition-colors ${snapToGrid ? 'text-sky-400 bg-sky-400/10 shadow-[inset_0_0_8px_rgba(56,189,248,0.2)]' : 'text-slate-400 hover:text-slate-200'}`}
-            title="Toggle Snap to Grid"
-          >
-            <Magnet size={16} />
-          </button>
-          <div className="w-px h-5 bg-white/10" />
-          <button 
-            onClick={() => setMetronomeEnabled(!metronomeEnabled)}
-            className={`p-1.5 rounded-lg transition-colors ${metronomeEnabled ? 'text-sky-400 bg-sky-400/10 shadow-[inset_0_0_8px_rgba(56,189,248,0.2)]' : 'text-slate-400 hover:text-slate-200'}`}
-            title="Toggle Metronome"
-          >
-            <Bell size={16} />
-          </button>
-          <div className="w-px h-5 bg-white/10" />
-          <input 
-            type="number" 
-            value={bpm} 
-            onChange={(e) => setBpm(Math.max(20, Math.min(300, Number(e.target.value))))}
-            className="w-12 bg-transparent text-slate-200 text-right focus:outline-none font-mono"
-            min="20" max="300"
-          />
-          <span className="text-xs text-slate-500 font-medium tracking-wide">BPM</span>
-        </div>
+
+      {/* ── Snap / Metronome / BPM ── */}
+      <div className="flex items-center gap-2 skeuo-input px-2.5 py-1.5 rounded-xl">
+        <button
+          onClick={() => setSnapToGrid(!snapToGrid)}
+          className={`p-1.5 rounded-md transition-colors ${snapToGrid ? 'text-amber-400 bg-amber-400/10' : 'text-zinc-500 hover:text-zinc-300'}`}
+          title="Snap to Grid"
+        >
+          <Magnet size={14} />
+        </button>
+        <div className="w-px h-4 bg-white/8" />
+        <button
+          onClick={() => setMetronomeEnabled(!metronomeEnabled)}
+          className={`p-1.5 rounded-md transition-colors ${metronomeEnabled ? 'text-amber-400 bg-amber-400/10' : 'text-zinc-500 hover:text-zinc-300'}`}
+          title="Metronome"
+        >
+          <Bell size={14} />
+        </button>
+        <div className="w-px h-4 bg-white/8" />
+        <input
+          type="number"
+          value={bpm}
+          onChange={(e) => setBpm(Math.max(20, Math.min(300, Number(e.target.value))))}
+          className="w-11 bg-transparent text-zinc-200 text-right focus:outline-none font-mono text-sm tabular-nums"
+          min="20" max="300"
+        />
+        <span className="text-[10px] text-zinc-500 font-semibold tracking-wider">BPM</span>
       </div>
     </div>
   );

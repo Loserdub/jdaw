@@ -21,9 +21,9 @@ export function TrackList({ scrollRef, onScroll }: TrackListProps) {
       if (engine.ctx.state === 'suspended') {
         await engine.ctx.resume();
       }
-      
+
       const arrayBuffer = await file.arrayBuffer();
-      
+
       // Make a copy of the buffer to prevent detached buffer issues in some browsers
       const bufferCopy = arrayBuffer.slice(0);
 
@@ -38,7 +38,7 @@ export function TrackList({ scrollRef, onScroll }: TrackListProps) {
           reject(e);
         }
       });
-      
+
       useDAWStore.getState().addRegion({
         id: Math.random().toString(36).substring(2, 9),
         trackId,
@@ -56,97 +56,127 @@ export function TrackList({ scrollRef, onScroll }: TrackListProps) {
 
   return (
     <div className="w-full h-full flex flex-col">
-      <div className="h-10 border-b border-white/5 flex justify-between items-center bg-white/5 px-4 shrink-0">
-        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-          Audio Tracks
+      {/* Header */}
+      <div className="h-10 border-b border-white/5 flex justify-between items-center bg-white/[0.03] px-3 shrink-0">
+        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+          Tracks
         </span>
-        <button onClick={addTrack} className="text-xs skeuo-button text-slate-300 px-3 py-1.5 rounded-lg font-medium flex items-center gap-1">
-          <Plus size={14} /> Add Track
+        <button
+          onClick={addTrack}
+          className="flex items-center gap-1 text-[10px] font-semibold text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/20 px-2.5 py-1 rounded-lg transition-colors"
+        >
+          <Plus size={11} />
+          Add
         </button>
       </div>
-      
-      <div 
-        className="flex-1 overflow-y-auto no-scrollbar" 
-        ref={scrollRef} 
+
+      {/* Track rows */}
+      <div
+        className="flex-1 overflow-y-auto no-scrollbar"
+        ref={scrollRef}
         onScroll={onScroll}
       >
         {tracks.map(track => (
-          <div 
-            key={track.id} 
+          <div
+            key={track.id}
             onClick={() => setSelectedTrackId(track.id)}
-            className={`p-4 border-b transition-all group flex flex-col cursor-pointer ${
-              selectedTrackId === track.id 
-                ? 'bg-white/[0.06] border-l-4 border-l-sky-400 border-white/10' 
-                : 'bg-white/[0.02] hover:bg-white/[0.04] border-white/5'
+            className={`border-b transition-all group flex flex-col cursor-pointer select-none ${
+              selectedTrackId === track.id
+                ? 'bg-amber-500/[0.05] border-l-2 border-l-amber-400 border-white/5'
+                : 'bg-transparent hover:bg-white/[0.03] border-white/5'
             }`}
             style={{ height: '140px' }}
           >
-            <div className="flex items-center justify-between mb-2" onClick={(e) => e.stopPropagation()}>
-              <input 
-                type="text" 
-                value={track.name} 
+            {/* Track name row */}
+            <div className="flex items-center justify-between px-3 pt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
+              <input
+                type="text"
+                value={track.name}
                 onChange={(e) => updateTrack(track.id, { name: e.target.value })}
-                className="bg-transparent text-sm font-semibold text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500/50 rounded px-1 w-24 transition-all"
+                className="bg-transparent text-xs font-semibold text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500/40 rounded px-1 w-24 transition-all"
               />
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <select
                   value={track.inputType}
                   onChange={(e) => updateTrack(track.id, { inputType: e.target.value as any })}
-                  className="skeuo-input text-[10px] font-medium text-slate-300 rounded-md px-1.5 py-1 outline-none focus:border-sky-500/50"
+                  className="skeuo-input text-[9px] font-semibold text-zinc-300 rounded-md px-1.5 py-0.5 outline-none focus:border-amber-500/40 cursor-pointer"
                 >
                   <option value="microphone">Mic</option>
                   <option value="midi">MIDI</option>
                   <option value="file">File</option>
                 </select>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); removeTrack(track.id); }} 
-                  className="text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                <button
+                  onClick={(e) => { e.stopPropagation(); removeTrack(track.id); }}
+                  className="text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-1 rounded"
                 >
-                  <Trash2 size={14} />
+                  <Trash2 size={12} />
                 </button>
               </div>
             </div>
-            
-            <div className="flex items-center gap-2 mb-2" onClick={(e) => e.stopPropagation()}>
-              <button 
+
+            {/* M / S / Arm / Upload buttons */}
+            <div className="flex items-center gap-1.5 px-3 py-1" onClick={(e) => e.stopPropagation()}>
+              {/* Mute */}
+              <button
                 onClick={() => updateTrack(track.id, { muted: !track.muted })}
-                className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold transition-all ${track.muted ? 'active-state text-amber-400 border-amber-500/50' : 'skeuo-button text-slate-400'}`}
+                className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold transition-all ${
+                  track.muted
+                    ? 'bg-amber-500/15 border border-amber-500/35 text-amber-400'
+                    : 'skeuo-button text-zinc-500 hover:text-zinc-200'
+                }`}
+                title="Mute"
               >
                 M
               </button>
-              <button 
+              {/* Solo */}
+              <button
                 onClick={() => updateTrack(track.id, { solo: !track.solo })}
-                className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold transition-all ${track.solo ? 'active-state text-sky-400 border-sky-500/50' : 'skeuo-button text-slate-400'}`}
+                className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold transition-all ${
+                  track.solo
+                    ? 'bg-amber-500/15 border border-amber-500/35 text-amber-400'
+                    : 'skeuo-button text-zinc-500 hover:text-zinc-200'
+                }`}
+                title="Solo"
               >
                 S
               </button>
-              <button 
+              {/* Arm */}
+              <button
                 onClick={() => updateTrack(track.id, { armed: !track.armed })}
-                className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${track.armed ? 'active-state text-red-400 border-red-500/50' : 'skeuo-button text-slate-400'}`}
+                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+                  track.armed
+                    ? 'bg-red-500/15 border border-red-500/35 text-red-400'
+                    : 'skeuo-button text-zinc-500 hover:text-zinc-200'
+                }`}
                 title={track.inputType === 'midi' ? 'Arm MIDI Recording' : 'Arm Audio Recording'}
               >
-                {track.inputType === 'midi' ? <Piano size={14} /> : <Mic size={14} />}
+                {track.inputType === 'midi' ? <Piano size={13} /> : <Mic size={13} />}
               </button>
-              <label className="w-7 h-7 rounded-lg flex items-center justify-center skeuo-button text-slate-400 cursor-pointer transition-all">
-                <Upload size={14} />
-                <input 
-                  type="file" 
-                  accept="audio/*" 
-                  className="hidden" 
-                  onChange={(e) => handleFileUpload(e, track.id)} 
+              {/* Upload */}
+              <label className="w-8 h-8 rounded-lg flex items-center justify-center skeuo-button text-zinc-500 hover:text-zinc-200 cursor-pointer transition-all" title="Upload audio">
+                <Upload size={13} />
+                <input
+                  type="file"
+                  accept="audio/*"
+                  className="hidden"
+                  onChange={(e) => handleFileUpload(e, track.id)}
                 />
               </label>
             </div>
-            
-            <div className="flex items-center gap-3 skeuo-input px-3 py-1.5 rounded-xl" onClick={(e) => e.stopPropagation()}>
-              <Volume2 size={14} className="text-slate-400 shrink-0" />
-              <input 
-                type="range" 
-                min="0" max="1" step="0.01" 
+
+            {/* Volume */}
+            <div className="flex items-center gap-2 mx-3 mb-2 skeuo-input px-2.5 py-1.5 rounded-xl" onClick={(e) => e.stopPropagation()}>
+              <Volume2 size={12} className="text-zinc-500 shrink-0" />
+              <input
+                type="range"
+                min="0" max="1" step="0.01"
                 value={track.volume}
                 onChange={(e) => updateTrack(track.id, { volume: parseFloat(e.target.value) })}
-                className="w-full h-1 bg-black/50 rounded-full appearance-none cursor-pointer accent-sky-400"
+                className="w-full"
               />
+              <span className="text-[9px] font-mono text-zinc-500 w-7 text-right tabular-nums">
+                {Math.round(track.volume * 100)}
+              </span>
             </div>
           </div>
         ))}

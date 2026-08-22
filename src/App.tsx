@@ -12,8 +12,11 @@ import { BottomPanel } from './components/BottomPanel';
 import { Download } from 'lucide-react';
 import { engine } from './lib/engine';
 
+type SidePanel = 'tracks' | 'master';
+
 export default function App() {
   const [isExporting, setIsExporting] = useState(false);
+  const [sidePanel, setSidePanel] = useState<SidePanel>('tracks');
   const leftScrollRef = useRef<HTMLDivElement>(null);
   const rightScrollRef = useRef<HTMLDivElement>(null);
 
@@ -42,39 +45,85 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen font-sans overflow-hidden p-4 gap-4">
-      <header className="glass-panel rounded-3xl flex items-center justify-between px-6 py-4 shrink-0">
-        <h1 className="text-2xl font-bold tracking-tight text-sky-400 drop-shadow-[0_0_8px_rgba(56,189,248,0.5)]">
-          <a href="https://trustnodelogic.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 hover:text-sky-300 transition-colors cursor-pointer">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <div className="flex flex-col h-screen overflow-hidden p-2 md:p-3 gap-2 md:gap-3">
+      {/* ── Header / Transport Bar ── */}
+      <header className="glass-panel rounded-2xl flex items-center justify-between px-4 md:px-5 py-2.5 shrink-0 gap-3">
+        {/* Logo */}
+        <h1 className="text-base font-bold tracking-tight text-amber-400 glow-amber shrink-0">
+          <a
+            href="https://trustnodelogic.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 hover:text-amber-300 transition-colors"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M2 12h4l3-9 5 18 3-9h5"/>
             </svg>
-            J-DAW
+            <span className="hidden sm:inline">J-DAW</span>
           </a>
         </h1>
-        <Transport />
-        <button 
+
+        {/* Transport — fills center */}
+        <div className="flex-1 min-w-0 overflow-hidden">
+          <Transport />
+        </div>
+
+        {/* Export */}
+        <button
           onClick={handleExport}
           disabled={isExporting}
-          className="flex items-center gap-2 px-4 py-2 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 rounded-xl transition-colors border border-sky-500/30 disabled:opacity-50"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded-xl transition-colors border border-amber-500/25 disabled:opacity-40 text-xs font-semibold shrink-0"
         >
-          <Download size={16} />
-          {isExporting ? 'Exporting...' : 'Export WAV'}
+          <Download size={13} />
+          <span className="hidden sm:inline">{isExporting ? 'Exporting…' : 'Export WAV'}</span>
+          <span className="sm:hidden">{isExporting ? '…' : 'WAV'}</span>
         </button>
       </header>
-      
-      <div className="flex flex-1 gap-4 overflow-hidden">
-        <div className="glass-panel rounded-3xl overflow-hidden flex flex-col w-72 shrink-0">
-          <TrackList scrollRef={leftScrollRef} onScroll={handleLeftScroll} />
+
+      {/* ── Main Area ── */}
+      <div className="flex flex-1 gap-2 md:gap-3 overflow-hidden min-h-0">
+
+        {/* ── Left: Track / Master Panel (desktop side-by-side, mobile tabbed) ── */}
+        <div className="glass-panel rounded-2xl overflow-hidden flex flex-col w-56 md:w-64 lg:w-72 shrink-0">
+          {/* Mobile tab strip */}
+          <div className="flex gap-1 px-2 pt-2 border-b border-white/5 shrink-0 md:hidden">
+            <button
+              className={`tab-btn ${sidePanel === 'tracks' ? 'active' : ''}`}
+              onClick={() => setSidePanel('tracks')}
+            >
+              Tracks
+            </button>
+            <button
+              className={`tab-btn ${sidePanel === 'master' ? 'active' : ''}`}
+              onClick={() => setSidePanel('master')}
+            >
+              Master
+            </button>
+          </div>
+
+          {/* Tracks tab content */}
+          <div className={`flex-1 overflow-hidden flex-col ${sidePanel === 'tracks' ? 'flex' : 'hidden'} md:flex`}>
+            <TrackList scrollRef={leftScrollRef} onScroll={handleLeftScroll} />
+          </div>
+
+          {/* Master tab content — mobile only (desktop uses dedicated right column) */}
+          <div className={`flex-1 overflow-hidden flex-col ${sidePanel === 'master' ? 'flex' : 'hidden'} md:hidden`}>
+            <MasterPanel />
+          </div>
         </div>
-        <div className="glass-panel rounded-3xl overflow-hidden flex-1 relative">
+
+        {/* ── Center: Timeline ── */}
+        <div className="glass-panel rounded-2xl overflow-hidden flex-1 relative min-w-0">
           <Timeline scrollRef={rightScrollRef} onScroll={handleRightScroll} />
         </div>
-        <div className="glass-panel rounded-3xl overflow-hidden flex flex-col w-72 shrink-0">
+
+        {/* ── Right: Master Panel (desktop only) ── */}
+        <div className={`glass-panel rounded-2xl overflow-hidden flex-col w-56 md:w-60 lg:w-64 shrink-0 hidden md:flex`}>
           <MasterPanel />
         </div>
       </div>
 
+      {/* ── Bottom Panel ── */}
       <BottomPanel />
     </div>
   );
