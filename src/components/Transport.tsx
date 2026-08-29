@@ -1,4 +1,4 @@
-import { Play, Square, Circle, Rewind, Repeat, Bell, Magnet } from 'lucide-react';
+import { Play, Square, Circle, Rewind, Repeat, Bell, Magnet, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { useDAWStore } from '../lib/store';
 import { engine } from '../lib/engine';
 import React, { useEffect, useState, useRef } from 'react';
@@ -9,7 +9,8 @@ export function Transport() {
     loopEnabled, setLoopEnabled, bpm, setBpm,
     metronomeEnabled, setMetronomeEnabled,
     snapToGrid, setSnapToGrid,
-    duration, loopStart, loopEnd, setLoopRegion
+    duration, loopStart, loopEnd, setLoopRegion,
+    zoom, zoomIn, zoomOut, zoomToFit
   } = useDAWStore();
   const [time, setTime] = useState(0);
   const [draggingLoop, setDraggingLoop] = useState<'start' | 'end' | 'both' | null>(null);
@@ -103,6 +104,13 @@ export function Transport() {
         engine.startRecording();
       }
     }
+  };
+
+  const handleFit = () => {
+    // Look up timeline container client width or default to window inner width
+    const timelineEl = document.querySelector('.overflow-auto') as HTMLElement | null;
+    const width = timelineEl?.clientWidth || window.innerWidth * 0.55;
+    zoomToFit(width);
   };
 
   /* ── Shared icon-button style ── */
@@ -237,6 +245,35 @@ export function Transport() {
           min="20" max="300"
         />
         <span className="text-[10px] text-zinc-500 font-semibold tracking-wider">BPM</span>
+      </div>
+
+      {/* ── Zoom Controls Cluster ── */}
+      <div className="hidden lg:flex items-center gap-1 skeuo-input px-2 py-1.5 rounded-xl">
+        <button
+          onClick={zoomOut}
+          className="p-1 hover:bg-white/10 rounded-md text-zinc-400 hover:text-amber-400 transition-colors"
+          title="Zoom Out"
+        >
+          <ZoomOut size={14} />
+        </button>
+        <span className="text-[10px] font-mono font-semibold text-zinc-400 px-1 tabular-nums w-10 text-center">
+          {Math.round((zoom / 100) * 100)}%
+        </span>
+        <button
+          onClick={zoomIn}
+          className="p-1 hover:bg-white/10 rounded-md text-zinc-400 hover:text-amber-400 transition-colors"
+          title="Zoom In"
+        >
+          <ZoomIn size={14} />
+        </button>
+        <div className="w-px h-4 bg-white/8" />
+        <button
+          onClick={handleFit}
+          className="p-1 hover:bg-white/10 rounded-md text-zinc-400 hover:text-amber-400 transition-colors"
+          title="Zoom to Fit Project"
+        >
+          <Maximize2 size={13} />
+        </button>
       </div>
     </div>
   );

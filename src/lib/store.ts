@@ -106,6 +106,12 @@ interface DAWState {
   
   snapToGrid: boolean;
   setSnapToGrid: (enabled: boolean) => void;
+
+  zoom: number; // Pixels per second (zoom scale: 15 to 600)
+  setZoom: (zoom: number) => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  zoomToFit: (viewportWidth: number) => void;
   
   loopEnabled: boolean;
   loopStart: number;
@@ -145,6 +151,22 @@ export const useDAWStore = create<DAWState>((set) => ({
   bpm: 120,
   metronomeEnabled: false,
   snapToGrid: true,
+  zoom: 100,
+  setZoom: (zoom) => set({ zoom: Math.max(15, Math.min(600, Math.round(zoom))) }),
+  zoomIn: () => set((state) => ({ zoom: Math.min(600, Math.round(state.zoom * 1.3)) })),
+  zoomOut: () => set((state) => ({ zoom: Math.max(15, Math.round(state.zoom / 1.3)) })),
+  zoomToFit: (viewportWidth) => set((state) => {
+    let maxTime = 10;
+    if (state.regions.length > 0) {
+      const maxRegionEnd = Math.max(...state.regions.map(r => r.start + r.duration));
+      maxTime = Math.max(10, maxRegionEnd + 2);
+    } else {
+      maxTime = state.duration;
+    }
+    const usableWidth = Math.max(200, viewportWidth - 48);
+    const targetZoom = Math.max(15, Math.min(600, Math.round(usableWidth / maxTime)));
+    return { zoom: targetZoom };
+  }),
   loopEnabled: false,
   loopStart: 0,
   loopEnd: 4,
