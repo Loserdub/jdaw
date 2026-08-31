@@ -11,6 +11,7 @@ import { MasterPanel } from './components/MasterPanel';
 import { BottomPanel } from './components/BottomPanel';
 import { Download } from 'lucide-react';
 import { engine } from './lib/engine';
+import { importAudioFile } from './lib/audioImport';
 
 type SidePanel = 'tracks' | 'master';
 
@@ -44,8 +45,24 @@ export default function App() {
     }
   };
 
+  const handleGlobalDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const files = (Array.from(e.dataTransfer.files) as File[]).filter(
+        f => f.type.startsWith('audio/') || /\.(wav|mp3|ogg|flac|m4a|aac|aiff|weba)$/i.test(f.name)
+      );
+      for (const file of files) {
+        await importAudioFile(file);
+      }
+    }
+  };
+
   return (
-    <div className="flex flex-col h-screen overflow-hidden p-2 md:p-3 gap-2 md:gap-3">
+    <div
+      className="flex flex-col h-screen overflow-hidden p-2 md:p-3 gap-2 md:gap-3"
+      onDrop={handleGlobalDrop}
+      onDragOver={(e) => e.preventDefault()}
+    >
       {/* ── Header / Transport Bar ── */}
       <header className="glass-panel rounded-2xl flex items-center justify-between px-4 md:px-5 py-2.5 shrink-0 gap-3">
         {/* Logo */}
@@ -54,12 +71,13 @@ export default function App() {
             href="https://trustnodelogic.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 hover:text-amber-300 transition-colors"
+            className="flex items-center gap-2 hover:text-amber-300 transition-all group"
+            title="Visit Trust Node Logic (Justin Ray)"
           >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="group-hover:scale-105 transition-transform">
               <path d="M2 12h4l3-9 5 18 3-9h5"/>
             </svg>
-            <span className="hidden sm:inline">J-DAW</span>
+            <span className="font-bold tracking-wider">J-DAW</span>
           </a>
         </h1>
 
@@ -125,6 +143,27 @@ export default function App() {
 
       {/* ── Bottom Panel ── */}
       <BottomPanel />
+
+      {/* ── Bottom Footer / Copyright Bar ── */}
+      <footer className="flex items-center justify-between px-2 text-[10px] text-zinc-500 font-mono shrink-0 select-none">
+        <div className="flex items-center gap-1.5">
+          <span>© {new Date().getFullYear()} Justin Ray</span>
+          <span className="text-zinc-700">•</span>
+          <a
+            href="https://trustnodelogic.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-amber-400/80 hover:text-amber-300 transition-colors hover:underline"
+          >
+            trustnodelogic.com
+          </a>
+        </div>
+        <div className="hidden sm:flex items-center gap-2 text-zinc-600 text-[9px]">
+          <span>All Rights Reserved</span>
+          <span className="text-zinc-700">•</span>
+          <span>Web Audio DAW</span>
+        </div>
+      </footer>
     </div>
   );
 }

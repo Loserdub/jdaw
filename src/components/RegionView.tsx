@@ -13,8 +13,24 @@ export function RegionView({ region, pixelsPerSecond, onContextMenu }: RegionVie
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isTrimming, setIsTrimming] = useState<'left' | 'right' | null>(null);
-  const { snapToGrid, bpm } = useDAWStore();
+  const { snapToGrid, bpm, selectedRegionId, setSelectedRegionId, setSelectedTrackId, setActiveBottomTab } = useDAWStore();
   const secondsPerBeat = 60 / bpm;
+  const isSelected = selectedRegionId === region.id;
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedTrackId(region.trackId);
+    setSelectedRegionId(region.id);
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedTrackId(region.trackId);
+    setSelectedRegionId(region.id);
+    if (region.midiNotes !== undefined || !region.buffer) {
+      setActiveBottomTab('pianoroll');
+    }
+  };
 
   const snapTime = (time: number) => {
     if (!snapToGrid) return time;
@@ -194,9 +210,13 @@ export function RegionView({ region, pixelsPerSecond, onContextMenu }: RegionVie
     <div
       ref={containerRef}
       draggable
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       onDragStart={handleDragStart}
       onContextMenu={(e) => onContextMenu?.(e, region.id)}
       className={`absolute top-2 h-[124px] border rounded-xl overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.3)] backdrop-blur-md cursor-grab active:cursor-grabbing group transition-all select-none ${
+        isSelected ? 'ring-2 ring-amber-400/80 shadow-[0_0_15px_rgba(245,158,11,0.4)]' : ''
+      } ${
         region.buffer
           ? 'bg-amber-500/[0.07] border-amber-500/30 hover:border-amber-400/60'
           : 'bg-purple-500/[0.07] border-purple-500/30 hover:border-purple-400/60'

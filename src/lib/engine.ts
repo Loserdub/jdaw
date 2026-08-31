@@ -1,5 +1,6 @@
 import { useDAWStore, Track, Region, MidiNote, Bus } from './store';
 import { EffectChain } from './effects';
+import { evaluateAutomationCurve, AUTOMATION_PARAMS } from './automation';
 
 export class AudioEngine {
   ctx: AudioContext;
@@ -17,6 +18,11 @@ export class AudioEngine {
   busPanners: Map<string, StereoPannerNode> = new Map();
   busEffects: Map<string, EffectChain> = new Map();
   
+  // Metering nodes
+  masterAnalyser: AnalyserNode;
+  trackAnalysers: Map<string, AnalyserNode> = new Map();
+  private timeDataBuffer = new Float32Array(256);
+
   // Playback nodes
   activeSources: AudioBufferSourceNode[] = [];
   activeMidiOscillators: Map<string, { osc: OscillatorNode, gain: GainNode }[]> = new Map();
@@ -60,9 +66,13 @@ export class AudioEngine {
     this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     this.masterGain = this.ctx.createGain();
     this.masterEffects = new EffectChain(this.ctx);
+    this.masterAnalyser = this.ctx.createAnalyser();
+    this.masterAnalyser.fftSize = 256;
+    this.masterAnalyser.smoothingTimeConstant = 0.8;
     
     this.masterGain.connect(this.masterEffects.input);
-    this.masterEffects.output.connect(this.ctx.destination);
+    this.masterEffects.output.connect(this.masterAnalyser);
+    this.masterAnalyser.connect(this.ctx.destination);
     
     const state = useDAWStore.getState();
     this.syncBuses(state.buses);
@@ -150,14 +160,19 @@ export class AudioEngine {
         const gain = this.ctx.createGain();
         const panner = this.ctx.createStereoPanner();
         const effects = new EffectChain(this.ctx);
+        const analyser = this.ctx.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.8;
         
         gain.connect(effects.input);
         effects.output.connect(panner);
-        panner.connect(this.masterGain);
+        panner.connect(analyser);
+        analyser.connect(this.masterGain);
         
         this.trackGains.set(track.id, gain);
         this.trackPanners.set(track.id, panner);
         this.trackEffects.set(track.id, effects);
+        this.trackAnalysers.set(track.id, analyser);
         this.trackSends.set(track.id, new Map());
       }
       
@@ -215,14 +230,53 @@ export class AudioEngine {
         gain.disconnect();
         this.trackPanners.get(id)?.disconnect();
         this.trackEffects.get(id)?.disconnect();
+        this.trackAnalysers.get(id)?.disconnect();
         this.trackSends.get(id)?.forEach(s => s.disconnect());
         
         this.trackGains.delete(id);
         this.trackPanners.delete(id);
         this.trackEffects.delete(id);
+        this.trackAnalysers.delete(id);
         this.trackSends.delete(id);
       }
     });
+  }
+
+  getTrackLevel(trackId: string): { peak: number; rms: number; isClipping: boolean } {
+    const analyser = this.trackAnalysers.get(trackId);
+    if (!analyser) return { peak: 0, rms: 0, isClipping: false };
+    analyser.getFloatTimeDomainData(this.timeDataBuffer);
+    return this.calcLevelFromBuffer(this.timeDataBuffer);
+  }
+
+  getMasterLevel(): { peak: number; rms: number; isClipping: boolean } {
+    if (!this.masterAnalyser) return { peak: 0, rms: 0, isClipping: false };
+    this.masterAnalyser.getFloatTimeDomainData(this.timeDataBuffer);
+    return this.calcLevelFromBuffer(this.timeDataBuffer);
+  }
+
+  getFrequencyData(trackId?: string | null): Uint8Array | null {
+    const analyser = trackId ? this.trackAnalysers.get(trackId) : this.masterAnalyser;
+    if (!analyser) return null;
+    const buffer = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(buffer);
+    return buffer;
+  }
+
+  private calcLevelFromBuffer(buf: Float32Array): { peak: number; rms: number; isClipping: boolean } {
+    let sum = 0;
+    let peak = 0;
+    for (let i = 0; i < buf.length; i++) {
+      const abs = Math.abs(buf[i]);
+      if (abs > peak) peak = abs;
+      sum += abs * abs;
+    }
+    const rms = Math.sqrt(sum / buf.length);
+    return {
+      peak: Math.min(1.5, peak),
+      rms: Math.min(1.5, rms),
+      isClipping: peak >= 0.99
+    };
   }
 
   async startInputMonitoring(trackId: string) {
@@ -719,8 +773,66 @@ export class AudioEngine {
     if (state.metronomeEnabled) {
       this.scheduleMetronome();
     }
+
+    if (this.isPlaying) {
+      this.applyAutomationsAtTime(this.playheadTime);
+    }
     
     this.playheadListeners.forEach(l => l(this.playheadTime));
+  }
+
+  private applyAutomationsAtTime(time: number) {
+    const state = useDAWStore.getState();
+    state.tracks.forEach(track => {
+      if (!track.automations) return;
+      const anySolo = state.tracks.some(t => t.solo);
+      const isAudible = !track.muted && (!anySolo || track.solo);
+
+      // Volume Automation
+      if (track.automations['volume']?.enabled && track.automations['volume'].points.length > 0) {
+        const normVal = evaluateAutomationCurve(track.automations['volume'].points, time, track.volume);
+        const gainNode = this.trackGains.get(track.id);
+        if (gainNode) {
+          const effectiveVol = isAudible ? normVal : 0;
+          try {
+            gainNode.gain.setValueAtTime(effectiveVol, this.ctx.currentTime);
+          } catch (e) {
+            gainNode.gain.value = effectiveVol;
+          }
+        }
+      }
+
+      // Pan Automation
+      if (track.automations['pan']?.enabled && track.automations['pan'].points.length > 0) {
+        const normVal = evaluateAutomationCurve(track.automations['pan'].points, time, (track.pan + 1) / 2);
+        const pannerNode = this.trackPanners.get(track.id);
+        if (pannerNode) {
+          const panVal = normVal * 2 - 1;
+          try {
+            pannerNode.pan.setValueAtTime(panVal, this.ctx.currentTime);
+          } catch (e) {
+            pannerNode.pan.value = panVal;
+          }
+        }
+      }
+
+      // Effect Automations
+      const effectChain = this.trackEffects.get(track.id);
+      if (effectChain) {
+        for (const [paramKey, autoLane] of Object.entries(track.automations)) {
+          if (!autoLane.enabled || autoLane.points.length === 0 || paramKey === 'volume' || paramKey === 'pan') continue;
+          const [effType, effParam] = paramKey.split(':');
+          const effConfig = track.effects.find(e => e.type === effType);
+          const effect = effConfig ? effectChain.effects.get(effConfig.id) : null;
+          if (effect && AUTOMATION_PARAMS[paramKey]) {
+            const meta = AUTOMATION_PARAMS[paramKey];
+            const normVal = evaluateAutomationCurve(autoLane.points, time, meta.defaultValue);
+            const actualVal = meta.toAudioValue(normVal);
+            effect.updateParams({ [effParam]: actualVal });
+          }
+        }
+      }
+    });
   }
 
   private scheduleMetronome() {
@@ -809,6 +921,26 @@ export class AudioEngine {
       gain.gain.value = effectiveVolume;
       panner.pan.value = track.pan;
       effects.sync(track.effects);
+
+      // Apply offline volume automation curves
+      if (track.automations?.['volume']?.enabled && track.automations['volume'].points.length > 0) {
+        const sorted = [...track.automations['volume'].points].sort((a, b) => a.time - b.time);
+        const initialVol = effectiveVolume === 0 ? 0 : sorted[0].value;
+        gain.gain.setValueAtTime(initialVol, 0);
+        sorted.forEach(pt => {
+          const ptVol = effectiveVolume === 0 ? 0 : pt.value;
+          gain.gain.linearRampToValueAtTime(ptVol, Math.min(duration, pt.time));
+        });
+      }
+
+      // Apply offline pan automation curves
+      if (track.automations?.['pan']?.enabled && track.automations['pan'].points.length > 0) {
+        const sorted = [...track.automations['pan'].points].sort((a, b) => a.time - b.time);
+        panner.pan.setValueAtTime(sorted[0].value * 2 - 1, 0);
+        sorted.forEach(pt => {
+          panner.pan.linearRampToValueAtTime(pt.value * 2 - 1, Math.min(duration, pt.time));
+        });
+      }
       
       // Setup sends
       track.sends.forEach(send => {
@@ -869,7 +1001,7 @@ export class AudioEngine {
     const renderedBuffer = await offlineCtx.startRendering();
     console.log('[AudioEngine] Render complete.');
     
-    // Convert to WAV
+    // Convert to WAV with embedded metadata
     const wavBlob = this.bufferToWave(renderedBuffer, renderedBuffer.length);
     
     // Download
@@ -884,57 +1016,109 @@ export class AudioEngine {
   }
 
   private bufferToWave(abuffer: AudioBuffer, len: number) {
-    let numOfChan = abuffer.numberOfChannels,
-        length = len * numOfChan * 2 + 44,
-        buffer = new ArrayBuffer(length),
-        view = new DataView(buffer),
-        channels = [], i, sample,
-        offset = 0,
-        pos = 0;
+    const numOfChan = abuffer.numberOfChannels;
+    const pcmByteLength = len * numOfChan * 2;
 
-    // write WAVE header
-    setUint32(0x46464952);                         // "RIFF"
-    setUint32(length - 8);                         // file length - 8
-    setUint32(0x45564157);                         // "WAVE"
+    // Build RIFF INFO metadata chunk with author and website
+    const tags: Record<string, string> = {
+      IART: 'Justin Ray',
+      ICOP: 'Copyright © 2026 Justin Ray - https://trustnodelogic.com',
+      ICMT: 'https://trustnodelogic.com',
+      ISFT: 'J-DAW by Justin Ray (https://trustnodelogic.com)',
+      INAM: 'J-DAW Audio Export'
+    };
 
-    setUint32(0x20746d66);                         // "fmt " chunk
-    setUint32(16);                                 // length = 16
-    setUint16(1);                                  // PCM (uncompressed)
-    setUint16(numOfChan);
-    setUint32(abuffer.sampleRate);
-    setUint32(abuffer.sampleRate * 2 * numOfChan); // avg. bytes/sec
-    setUint16(numOfChan * 2);                      // block-align
-    setUint16(16);                                 // 16-bit (hardcoded in this demo)
+    const infoChunk = this.createInfoChunk(tags);
+    const totalFileLength = 44 + pcmByteLength + infoChunk.length;
 
-    setUint32(0x61746164);                         // "data" - chunk
-    setUint32(length - pos - 4);                   // chunk length
+    const buffer = new ArrayBuffer(totalFileLength);
+    const view = new DataView(buffer);
+    let pos = 0;
 
-    // write interleaved data
-    for(i = 0; i < abuffer.numberOfChannels; i++)
-      channels.push(abuffer.getChannelData(i));
-
-    while(pos < length) {
-      for(i = 0; i < numOfChan; i++) {             // interleave channels
-        sample = Math.max(-1, Math.min(1, channels[i][offset])); // clamp
-        sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767)|0; // scale to 16-bit signed int
-        view.setInt16(pos, sample, true);          // write 16-bit sample
-        pos += 2;
-      }
-      offset++                                     // next source sample
-    }
-
-    // create Blob
-    return new Blob([buffer], {type: "audio/wav"});
-
-    function setUint16(data: number) {
+    const setUint16 = (data: number) => {
       view.setUint16(pos, data, true);
       pos += 2;
-    }
+    };
 
-    function setUint32(data: number) {
+    const setUint32 = (data: number) => {
       view.setUint32(pos, data, true);
       pos += 4;
+    };
+
+    // 1. RIFF Header
+    setUint32(0x46464952);                         // "RIFF"
+    setUint32(totalFileLength - 8);                 // file length - 8
+    setUint32(0x45564157);                         // "WAVE"
+
+    // 2. fmt chunk
+    setUint32(0x20746d66);                         // "fmt "
+    setUint32(16);                                 // SubChunk1Size (16 for PCM)
+    setUint16(1);                                  // AudioFormat (1 = PCM)
+    setUint16(numOfChan);                          // NumChannels
+    setUint32(abuffer.sampleRate);                 // SampleRate
+    setUint32(abuffer.sampleRate * 2 * numOfChan); // ByteRate
+    setUint16(numOfChan * 2);                      // BlockAlign
+    setUint16(16);                                 // BitsPerSample
+
+    // 3. data chunk header
+    setUint32(0x61746164);                         // "data"
+    setUint32(pcmByteLength);                      // SubChunk2Size
+
+    // 4. Interleaved PCM 16-bit audio data
+    const channels: Float32Array[] = [];
+    for (let c = 0; c < numOfChan; c++) {
+      channels.push(abuffer.getChannelData(c));
     }
+
+    for (let offset = 0; offset < len; offset++) {
+      for (let c = 0; c < numOfChan; c++) {
+        let sample = Math.max(-1, Math.min(1, channels[c][offset]));
+        const int16Sample = sample < 0 ? sample * 32768 : sample * 32767;
+        view.setInt16(pos, int16Sample | 0, true);
+        pos += 2;
+      }
+    }
+
+    // 5. Append RIFF INFO metadata chunk (Artist: Justin Ray, URL: trustnodelogic.com)
+    const uint8View = new Uint8Array(buffer);
+    uint8View.set(infoChunk, pos);
+
+    return new Blob([buffer], { type: 'audio/wav' });
+  }
+
+  private createInfoChunk(tags: Record<string, string>): Uint8Array {
+    const chunks: { id: string; data: Uint8Array }[] = [];
+    let totalContentLength = 4; // for 'INFO' 4-byte ID
+
+    for (const [id, text] of Object.entries(tags)) {
+      const textBytes = new TextEncoder().encode(text + '\0');
+      const pad = textBytes.length % 2 !== 0 ? 1 : 0;
+      const paddedData = new Uint8Array(textBytes.length + pad);
+      paddedData.set(textBytes);
+      chunks.push({ id, data: paddedData });
+      totalContentLength += 8 + paddedData.length;
+    }
+
+    const listChunk = new Uint8Array(8 + totalContentLength);
+    const view = new DataView(listChunk.buffer);
+
+    // 'LIST' chunk
+    listChunk.set([0x4C, 0x49, 0x53, 0x54], 0);
+    view.setUint32(4, totalContentLength, true);
+    // 'INFO' ID
+    listChunk.set([0x49, 0x4E, 0x46, 0x4F], 8);
+
+    let offset = 12;
+    for (const chunk of chunks) {
+      for (let c = 0; c < 4; c++) {
+        listChunk[offset + c] = chunk.id.charCodeAt(c);
+      }
+      view.setUint32(offset + 4, chunk.data.length, true);
+      listChunk.set(chunk.data, offset + 8);
+      offset += 8 + chunk.data.length;
+    }
+
+    return listChunk;
   }
 }
 

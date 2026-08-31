@@ -1,6 +1,6 @@
 import React from 'react';
 import { useDAWStore, AudioEffect, EffectType } from '../lib/store';
-import { Trash2, Power } from 'lucide-react';
+import { Trash2, Power, Activity } from 'lucide-react';
 
 interface EffectParamsProps {
   effect: AudioEffect;
@@ -140,6 +140,16 @@ export function EffectRack({ effects, onAddEffect, onUpdateEffect, onRemoveEffec
             <div className={effect.enabled ? '' : 'opacity-40 pointer-events-none'}>
               <EffectParams effect={effect} onChange={(updates) => onUpdateEffect(effect.id, updates)} />
             </div>
+
+            {effect.type === 'eq' && (
+              <button
+                onClick={() => useDAWStore.getState().setActiveBottomTab('eq')}
+                className="flex items-center justify-center gap-1 w-full bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 text-[9px] font-semibold py-1 rounded-lg transition-colors"
+              >
+                <Activity size={10} />
+                <span>Open Visual Curve</span>
+              </button>
+            )}
           </div>
         ))}
       </div>

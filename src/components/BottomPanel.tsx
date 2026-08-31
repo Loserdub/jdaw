@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useDAWStore, SynthOscillatorType, AudioEffect, EffectType } from '../lib/store';
 import { engine } from '../lib/engine';
-import { Volume2, Power, Trash2, Sliders, Music, Zap } from 'lucide-react';
+import { Volume2, Power, Trash2, Sliders, Music, Zap, Grid, Activity } from 'lucide-react';
+import { PianoRoll } from './PianoRoll';
+import { LevelMeter } from './LevelMeter';
+import { VisualEQ } from './VisualEQ';
 
 // Computer keyboard mappings to MIDI notes (C4 = 60)
 const KEY_MAP: Record<string, number> = {
@@ -24,8 +27,6 @@ const KEY_MAP: Record<string, number> = {
   ';': 76   // E5
 };
 
-type BottomTab = 'params' | 'fx' | 'keys';
-
 export function BottomPanel() {
   const {
     tracks,
@@ -34,12 +35,12 @@ export function BottomPanel() {
     updateTrackSynthSettings,
     addTrackEffect,
     updateTrackEffect,
-    removeTrackEffect
+    removeTrackEffect,
+    activeBottomTab,
+    setActiveBottomTab
   } = useDAWStore();
 
   const [activeNotes, setActiveNotes] = useState<Set<number>>(new Set());
-  const [activeTab, setActiveTab] = useState<BottomTab>('params');
-
   const selectedTrack = tracks.find(t => t.id === selectedTrackId);
 
   // MIDI Keyboard trigger functions
@@ -135,11 +136,20 @@ export function BottomPanel() {
       case 'reverb':   return <>{renderSlider('Mix',    'mix',       0,    1)}{renderSlider('Decay',  'decay',     0.1,  10, 0.1)}</>;
       case 'delay':    return <>{renderSlider('Mix',    'mix',       0,    1)}{renderSlider('Time',   'time',      0.01, 2)}{renderSlider('Fdbk',  'feedback',  0,    0.95)}</>;
       case 'eq':       return (
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {renderSlider('Low G', 'lowGain',  -24, 24, 1)}
-          {renderSlider('Mid G', 'midGain',  -24, 24, 1)}
-          {renderSlider('Hi G',  'highGain', -24, 24, 1)}
-          {renderSlider('Mid F', 'midFreq',  200, 5000, 10)}
+        <div className="flex flex-col gap-1.5">
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {renderSlider('Low G', 'lowGain', -24, 24, 1)}
+            {renderSlider('Mid G', 'midGain', -24, 24, 1)}
+            {renderSlider('Hi-M G', 'highMidGain', -24, 24, 1)}
+            {renderSlider('Hi G', 'highGain', -24, 24, 1)}
+          </div>
+          <button
+            onClick={() => setActiveBottomTab('eq')}
+            className="flex items-center justify-center gap-1 w-full bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 text-[8px] font-semibold py-0.5 rounded transition-colors mt-0.5"
+          >
+            <Activity size={9} />
+            <span>Visual Curve</span>
+          </button>
         </div>
       );
       case 'compressor': return (
@@ -154,7 +164,6 @@ export function BottomPanel() {
     }
   };
 
-  /* ── Section header helper ── */
   const SectionHeader = ({ icon, label, right }: { icon: React.ReactNode; label: string; right?: React.ReactNode }) => (
     <div className="flex justify-between items-center mb-2 shrink-0">
       <div className="flex items-center gap-1.5">
@@ -166,249 +175,306 @@ export function BottomPanel() {
   );
 
   return (
-    <div className="glass-panel rounded-2xl shrink-0 overflow-hidden border border-white/5">
-      {/* ── Mobile tab strip ── */}
-      <div className="flex gap-1 px-2 pt-2 border-b border-white/5 md:hidden">
-        <button className={`tab-btn ${activeTab === 'params' ? 'active' : ''}`} onClick={() => setActiveTab('params')}>
-          Params
+    <div className="glass-panel rounded-2xl shrink-0 overflow-hidden border border-white/5 flex flex-col">
+      {/* ── Top tab switcher ── */}
+      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-white/5 bg-white/[0.02]">
+        <button
+          className={`tab-btn flex items-center gap-1 ${activeBottomTab === 'params' ? 'active' : ''}`}
+          onClick={() => setActiveBottomTab('params')}
+        >
+          <Sliders size={11} />
+          <span>Track Setup</span>
         </button>
-        <button className={`tab-btn ${activeTab === 'fx' ? 'active' : ''}`} onClick={() => setActiveTab('fx')}>
-          FX Chain
+
+        {selectedTrack.inputType === 'midi' && (
+          <button
+            className={`tab-btn flex items-center gap-1 ${activeBottomTab === 'pianoroll' ? 'active' : ''}`}
+            onClick={() => setActiveBottomTab('pianoroll')}
+          >
+            <Grid size={11} />
+            <span>Piano Roll</span>
+          </button>
+        )}
+
+        <button
+          className={`tab-btn flex items-center gap-1 ${activeBottomTab === 'eq' ? 'active' : ''}`}
+          onClick={() => setActiveBottomTab('eq')}
+        >
+          <Activity size={11} />
+          <span>Visual EQ</span>
         </button>
-        <button className={`tab-btn ${activeTab === 'keys' ? 'active' : ''}`} onClick={() => setActiveTab('keys')}>
-          Keyboard
+
+        <button
+          className={`tab-btn flex items-center gap-1 ${activeBottomTab === 'fx' ? 'active' : ''}`}
+          onClick={() => setActiveBottomTab('fx')}
+        >
+          <span>FX Chain</span>
         </button>
-        <span className="ml-auto text-[9px] font-semibold text-zinc-600 self-center pr-1">{selectedTrack.name}</span>
+
+        <button
+          className={`tab-btn flex items-center gap-1 ${activeBottomTab === 'keys' ? 'active' : ''}`}
+          onClick={() => setActiveBottomTab('keys')}
+        >
+          <Music size={11} />
+          <span>Keyboard</span>
+        </button>
+
+        <span className="ml-auto text-[9px] font-mono font-semibold text-zinc-500 self-center pr-1">
+          {selectedTrack.name} ({selectedTrack.inputType.toUpperCase()})
+        </span>
       </div>
 
-      {/* ── Main content row ── */}
-      <div className="flex gap-0 h-56 md:h-64">
-
-        {/* ── COLUMN 1: Track Parameters ── */}
-        <div className={`w-full md:w-72 lg:w-80 flex flex-col border-r border-white/5 p-3 shrink-0 ${activeTab === 'params' ? 'flex' : 'hidden'} md:flex`}>
-          <SectionHeader
-            icon={<Sliders size={13} className="text-amber-400" />}
-            label={`Track: ${selectedTrack.name}`}
-          />
-
-          <div className="flex flex-col gap-2.5 flex-1">
-            {/* Volume */}
-            <div className="flex items-center gap-2 skeuo-input px-2.5 py-1.5 rounded-xl">
-              <Volume2 size={12} className="text-zinc-500 shrink-0" />
-              <input
-                type="range" min="0" max="1" step="0.01"
-                value={selectedTrack.volume}
-                onChange={(e) => updateTrack(selectedTrack.id, { volume: parseFloat(e.target.value) })}
-                className="w-full"
-              />
-              <span className="text-[9px] font-mono text-zinc-500 w-8 text-right tabular-nums">
-                {Math.round(selectedTrack.volume * 100)}%
-              </span>
-            </div>
-
-            {/* Pan */}
-            <div className="flex items-center gap-2.5">
-              <span className="text-[9px] uppercase font-bold text-zinc-600 tracking-wider w-7 shrink-0">Pan</span>
-              <input
-                type="range" min="-1" max="1" step="0.05"
-                value={selectedTrack.pan}
-                onChange={(e) => updateTrack(selectedTrack.id, { pan: parseFloat(e.target.value) })}
-                className="w-full"
-              />
-              <span className="text-[9px] font-mono text-zinc-500 w-10 text-right tabular-nums">
-                {selectedTrack.pan === 0 ? 'C' : selectedTrack.pan > 0 ? `R${Math.round(selectedTrack.pan * 100)}` : `L${Math.round(Math.abs(selectedTrack.pan) * 100)}`}
-              </span>
-            </div>
-
-            {/* Synth ADSR — MIDI only */}
-            {selectedTrack.inputType === 'midi' ? (
-              <div className="bg-black/20 border border-white/5 rounded-xl p-2.5 flex flex-col gap-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] font-bold uppercase text-amber-400/80 tracking-wider">Synth</span>
-                  <select
-                    value={selectedTrack.synthSettings.oscillatorType}
-                    onChange={(e) => updateTrackSynthSettings(selectedTrack.id, { oscillatorType: e.target.value as SynthOscillatorType })}
-                    className="bg-black/40 border border-white/8 text-[9px] font-medium text-zinc-300 rounded px-1.5 py-0.5 outline-none cursor-pointer hover:border-amber-500/30"
-                  >
-                    <option value="square">Square</option>
-                    <option value="sawtooth">Sawtooth</option>
-                    <option value="triangle">Triangle</option>
-                    <option value="sine">Sine</option>
-                  </select>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <div className="flex flex-col gap-0.5">
-                    <div className="flex justify-between text-[8px] font-mono text-zinc-500">
-                      <span>Attack</span>
-                      <span>{selectedTrack.synthSettings.attack.toFixed(3)}s</span>
-                    </div>
-                    <input
-                      type="range" min="0.001" max="1.5" step="0.005"
-                      value={selectedTrack.synthSettings.attack}
-                      onChange={(e) => updateTrackSynthSettings(selectedTrack.id, { attack: parseFloat(e.target.value) })}
-                      className="w-full"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    <div className="flex justify-between text-[8px] font-mono text-zinc-500">
-                      <span>Release</span>
-                      <span>{selectedTrack.synthSettings.release.toFixed(2)}s</span>
-                    </div>
-                    <input
-                      type="range" min="0.01" max="2.0" step="0.01"
-                      value={selectedTrack.synthSettings.release}
-                      onChange={(e) => updateTrackSynthSettings(selectedTrack.id, { release: parseFloat(e.target.value) })}
-                      className="w-full"
-                    />
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="text-[9px] text-zinc-600 border border-dashed border-white/5 rounded-xl p-3 flex flex-col items-center justify-center text-center flex-1">
-                <Zap size={13} className="text-zinc-700 mb-1" />
-                <span>Set input to <b className="text-zinc-500">MIDI</b> to unlock Synth controls</span>
-              </div>
-            )}
+      {/* ── Tab Content Area ── */}
+      <div className="h-56 md:h-64 overflow-hidden">
+        {/* TAB: Visual Parametric EQ */}
+        {activeBottomTab === 'eq' ? (
+          <div className="h-full p-2">
+            <VisualEQ />
           </div>
-        </div>
+        ) : activeBottomTab === 'pianoroll' && selectedTrack.inputType === 'midi' ? (
+          /* TAB: Piano Roll Editor */
+          <div className="h-full p-2">
+            <PianoRoll />
+          </div>
+        ) : (
+          /* TAB: Standard Overview / Split Layout */
+          <div className="flex gap-0 h-full">
+            {/* ── COLUMN 1: Track Parameters ── */}
+            <div className={`w-full md:w-72 lg:w-80 flex flex-col border-r border-white/5 p-3 shrink-0 ${activeBottomTab === 'params' ? 'flex' : 'hidden'} md:flex`}>
+              <SectionHeader
+                icon={<Sliders size={13} className="text-amber-400" />}
+                label={`Track: ${selectedTrack.name}`}
+              />
 
-        {/* ── COLUMN 2: FX Chain ── */}
-        <div className={`flex-1 flex flex-col border-r border-white/5 p-3 overflow-hidden ${activeTab === 'fx' ? 'flex' : 'hidden'} md:flex`}>
-          <SectionHeader
-            icon={<Sliders size={13} className="text-emerald-400" />}
-            label="Insert FX"
-            right={
-              <select
-                className="text-[9px] bg-black/30 border border-white/8 rounded px-1.5 py-0.5 text-zinc-400 outline-none hover:border-amber-500/30 hover:text-amber-400 cursor-pointer transition-colors"
-                onChange={(e) => {
-                  if (e.target.value) { addTrackEffect(selectedTrack.id, e.target.value as EffectType); e.target.value = ''; }
-                }}
-                value=""
-              >
-                <option value="" disabled>+ Add Effect</option>
-                <option value="reverb">Reverb</option>
-                <option value="delay">Delay</option>
-                <option value="eq">EQ</option>
-                <option value="compressor">Compressor</option>
-              </select>
-            }
-          />
+              <div className="flex flex-col gap-2 flex-1">
+                {/* Volume & Level Meter */}
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2 skeuo-input px-2.5 py-1.5 rounded-xl">
+                    <Volume2 size={12} className="text-zinc-500 shrink-0" />
+                    <input
+                      type="range" min="0" max="1" step="0.01"
+                      value={selectedTrack.volume}
+                      onChange={(e) => updateTrack(selectedTrack.id, { volume: parseFloat(e.target.value) })}
+                      className="w-full"
+                    />
+                    <span className="text-[9px] font-mono text-zinc-500 w-8 text-right tabular-nums">
+                      {Math.round(selectedTrack.volume * 100)}%
+                    </span>
+                  </div>
+                  <div className="px-1">
+                    <LevelMeter trackId={selectedTrack.id} accentColor="amber" showDbReadout />
+                  </div>
+                </div>
 
-          {/* Pedals row */}
-          <div className="flex-1 flex gap-2 overflow-x-auto pb-1 items-stretch no-scrollbar">
-            {selectedTrack.effects.length === 0 ? (
-              <div className="flex-1 border border-dashed border-white/5 rounded-2xl flex flex-col items-center justify-center text-zinc-700 text-[9px]">
-                No effects on this track
-              </div>
-            ) : (
-              selectedTrack.effects.map(effect => (
-                <div
-                  key={effect.id}
-                  className="w-36 bg-black/20 border border-white/5 rounded-2xl p-2.5 flex flex-col justify-between shrink-0 hover:border-white/10 transition-colors"
-                >
-                  <div className="flex justify-between items-center mb-1">
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => updateTrackEffect(selectedTrack.id, effect.id, { enabled: !effect.enabled })}
-                        className={`p-1 rounded-md transition-all ${
-                          effect.enabled
-                            ? 'text-amber-400 bg-amber-500/10 shadow-[0_0_6px_rgba(245,158,11,0.3)]'
-                            : 'text-zinc-600 bg-black/30'
-                        }`}
-                        title="Toggle"
+                {/* Pan */}
+                <div className="flex items-center gap-2.5">
+                  <span className="text-[9px] uppercase font-bold text-zinc-600 tracking-wider w-7 shrink-0">Pan</span>
+                  <input
+                    type="range" min="-1" max="1" step="0.05"
+                    value={selectedTrack.pan}
+                    onChange={(e) => updateTrack(selectedTrack.id, { pan: parseFloat(e.target.value) })}
+                    className="w-full"
+                  />
+                  <span className="text-[9px] font-mono text-zinc-500 w-10 text-right tabular-nums">
+                    {selectedTrack.pan === 0 ? 'C' : selectedTrack.pan > 0 ? `R${Math.round(selectedTrack.pan * 100)}` : `L${Math.round(Math.abs(selectedTrack.pan) * 100)}`}
+                  </span>
+                </div>
+
+                {/* Synth ADSR — MIDI only */}
+                {selectedTrack.inputType === 'midi' ? (
+                  <div className="bg-black/20 border border-white/5 rounded-xl p-2.5 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-bold uppercase text-amber-400/80 tracking-wider">Synth</span>
+                      <select
+                        value={selectedTrack.synthSettings.oscillatorType}
+                        onChange={(e) => updateTrackSynthSettings(selectedTrack.id, { oscillatorType: e.target.value as SynthOscillatorType })}
+                        className="bg-black/40 border border-white/8 text-[9px] font-medium text-zinc-300 rounded px-1.5 py-0.5 outline-none cursor-pointer hover:border-amber-500/30"
                       >
-                        <Power size={9} />
-                      </button>
-                      <span className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider truncate w-16">
-                        {effect.type}
-                      </span>
+                        <option value="square">Square</option>
+                        <option value="sawtooth">Sawtooth</option>
+                        <option value="triangle">Triangle</option>
+                        <option value="sine">Sine</option>
+                      </select>
                     </div>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex justify-between text-[8px] font-mono text-zinc-500">
+                          <span>Attack</span>
+                          <span>{selectedTrack.synthSettings.attack.toFixed(3)}s</span>
+                        </div>
+                        <input
+                          type="range" min="0.001" max="1.5" step="0.005"
+                          value={selectedTrack.synthSettings.attack}
+                          onChange={(e) => updateTrackSynthSettings(selectedTrack.id, { attack: parseFloat(e.target.value) })}
+                          className="w-full"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex justify-between text-[8px] font-mono text-zinc-500">
+                          <span>Release</span>
+                          <span>{selectedTrack.synthSettings.release.toFixed(2)}s</span>
+                        </div>
+                        <input
+                          type="range" min="0.01" max="2.0" step="0.01"
+                          value={selectedTrack.synthSettings.release}
+                          onChange={(e) => updateTrackSynthSettings(selectedTrack.id, { release: parseFloat(e.target.value) })}
+                          className="w-full"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[9px] text-zinc-600 border border-dashed border-white/5 rounded-xl p-3 flex flex-col items-center justify-center text-center flex-1">
+                    <Zap size={13} className="text-zinc-700 mb-1" />
+                    <span>Set input to <b className="text-zinc-500">MIDI</b> to unlock Synth controls</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ── COLUMN 2: FX Chain ── */}
+            <div className={`flex-1 flex flex-col border-r border-white/5 p-3 overflow-hidden ${activeBottomTab === 'fx' ? 'flex' : 'hidden'} md:flex`}>
+              <SectionHeader
+                icon={<Sliders size={13} className="text-emerald-400" />}
+                label="Insert FX"
+                right={
+                  <select
+                    className="text-[9px] bg-black/30 border border-white/8 rounded px-1.5 py-0.5 text-zinc-400 outline-none hover:border-amber-500/30 hover:text-amber-400 cursor-pointer transition-colors"
+                    onChange={(e) => {
+                      if (e.target.value) { addTrackEffect(selectedTrack.id, e.target.value as EffectType); e.target.value = ''; }
+                    }}
+                    value=""
+                  >
+                    <option value="" disabled>+ Add Effect</option>
+                    <option value="reverb">Reverb</option>
+                    <option value="delay">Delay</option>
+                    <option value="eq">EQ</option>
+                    <option value="compressor">Compressor</option>
+                  </select>
+                }
+              />
+
+              {/* Pedals row */}
+              <div className="flex-1 flex gap-2 overflow-x-auto pb-1 items-stretch no-scrollbar">
+                {selectedTrack.effects.length === 0 ? (
+                  <div className="flex-1 border border-dashed border-white/5 rounded-2xl flex flex-col items-center justify-center text-zinc-700 text-[9px]">
+                    No effects on this track
+                  </div>
+                ) : (
+                  selectedTrack.effects.map(effect => (
+                    <div
+                      key={effect.id}
+                      className="w-36 bg-black/20 border border-white/5 rounded-2xl p-2.5 flex flex-col justify-between shrink-0 hover:border-white/10 transition-colors"
+                    >
+                      <div className="flex justify-between items-center mb-1">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => updateTrackEffect(selectedTrack.id, effect.id, { enabled: !effect.enabled })}
+                            className={`p-1 rounded-md transition-all ${
+                              effect.enabled
+                                ? 'text-amber-400 bg-amber-500/10 shadow-[0_0_6px_rgba(245,158,11,0.3)]'
+                                : 'text-zinc-600 bg-black/30'
+                            }`}
+                            title="Toggle"
+                          >
+                            <Power size={9} />
+                          </button>
+                          <span className="text-[9px] font-bold text-zinc-300 uppercase tracking-wider truncate w-16">
+                            {effect.type}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => removeTrackEffect(selectedTrack.id, effect.id)}
+                          className="text-zinc-600 hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 size={9} />
+                        </button>
+                      </div>
+
+                      <div className={`flex flex-col gap-1.5 flex-1 justify-center ${effect.enabled ? '' : 'opacity-40 pointer-events-none'}`}>
+                        {renderEffectSliders(effect)}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* ── COLUMN 3: Virtual MIDI Keyboard ── */}
+            <div className={`w-full md:w-[360px] flex flex-col shrink-0 p-3 overflow-hidden ${activeBottomTab === 'keys' ? 'flex' : 'hidden'} md:flex`}>
+              <SectionHeader
+                icon={<Music size={13} className="text-amber-400/70" />}
+                label="Keyboard"
+                right={
+                  selectedTrack.inputType === 'midi' ? (
                     <button
-                      onClick={() => removeTrackEffect(selectedTrack.id, effect.id)}
-                      className="text-zinc-600 hover:text-red-400 transition-colors"
+                      onClick={() => setActiveBottomTab('pianoroll')}
+                      className="text-[8px] font-mono text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/20 transition-colors flex items-center gap-1"
                     >
-                      <Trash2 size={9} />
+                      <Grid size={10} />
+                      <span>Open Piano Roll</span>
                     </button>
+                  ) : null
+                }
+              />
+
+              <div className="flex-1 relative flex items-start select-none bg-black/30 rounded-xl border border-white/5 p-1.5 overflow-hidden">
+                {selectedTrack.inputType === 'midi' ? (
+                  <div className="relative w-full h-full flex">
+                    {/* White keys */}
+                    {whiteKeys.map((k) => {
+                      const isActive = activeNotes.has(k.note);
+                      return (
+                        <div
+                          key={k.note}
+                          onMouseDown={() => playNote(k.note)}
+                          onMouseUp={() => stopNote(k.note)}
+                          onMouseLeave={() => activeNotes.has(k.note) && stopNote(k.note)}
+                          className={`flex-1 flex flex-col justify-end items-center pb-1.5 cursor-pointer transition-all border-r border-black/30 rounded-b-md shadow-sm ${
+                            isActive
+                              ? 'bg-amber-400 text-amber-900 shadow-[0_0_10px_rgba(245,158,11,0.6)]'
+                              : 'bg-zinc-100 hover:bg-zinc-50 text-zinc-500'
+                          }`}
+                          style={{ height: '95%' }}
+                        >
+                          <span className="text-[7px] font-bold font-mono">{k.keyLabel}</span>
+                        </div>
+                      );
+                    })}
+
+                    {/* Black keys */}
+                    {blackKeys.map((k) => {
+                      const isActive = activeNotes.has(k.note);
+                      const whiteKeyWidthPercent = 100 / whiteKeys.length;
+                      const leftOffset = (k.leftIndex + 1) * whiteKeyWidthPercent;
+                      return (
+                        <div
+                          key={k.note}
+                          onMouseDown={(e) => { e.stopPropagation(); playNote(k.note); }}
+                          onMouseUp={(e) => { e.stopPropagation(); stopNote(k.note); }}
+                          onMouseLeave={(e) => activeNotes.has(k.note) && stopNote(k.note)}
+                          className={`absolute z-10 w-5 flex flex-col justify-end items-center pb-1.5 cursor-pointer transition-all border border-black rounded-b-md shadow-lg -ml-2.5 ${
+                            isActive
+                              ? 'bg-amber-500 text-amber-100 shadow-[0_0_12px_rgba(245,158,11,0.8)]'
+                              : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-500'
+                          }`}
+                          style={{ left: `${leftOffset}%`, height: '60%' }}
+                        >
+                          <span className="text-[6px] font-bold font-mono">{k.keyLabel}</span>
+                        </div>
+                      );
+                    })}
                   </div>
-
-                  <div className={`flex flex-col gap-1.5 flex-1 justify-center ${effect.enabled ? '' : 'opacity-40 pointer-events-none'}`}>
-                    {renderEffectSliders(effect)}
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center text-center text-zinc-600 text-[9px] p-4 border border-dashed border-white/5 rounded-xl w-full">
+                    <Zap size={14} className="text-zinc-700 mb-1.5" />
+                    <span>Set track input to <b className="text-zinc-500">MIDI</b> to enable keyboard</span>
                   </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* ── COLUMN 3: Virtual MIDI Keyboard ── */}
-        <div className={`w-full md:w-[360px] flex flex-col shrink-0 p-3 overflow-hidden ${activeTab === 'keys' ? 'flex' : 'hidden'} md:flex`}>
-          <SectionHeader
-            icon={<Music size={13} className="text-amber-400/70" />}
-            label="Keyboard"
-            right={
-              selectedTrack.inputType === 'midi' ? (
-                <span className="text-[8px] font-mono text-amber-400 animate-pulse bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-                  Musical Typing On
-                </span>
-              ) : null
-            }
-          />
-
-          <div className="flex-1 relative flex items-start select-none bg-black/30 rounded-xl border border-white/5 p-1.5 overflow-hidden">
-            {selectedTrack.inputType === 'midi' ? (
-              <div className="relative w-full h-full flex">
-                {/* White keys */}
-                {whiteKeys.map((k) => {
-                  const isActive = activeNotes.has(k.note);
-                  return (
-                    <div
-                      key={k.note}
-                      onMouseDown={() => playNote(k.note)}
-                      onMouseUp={() => stopNote(k.note)}
-                      onMouseLeave={() => activeNotes.has(k.note) && stopNote(k.note)}
-                      className={`flex-1 flex flex-col justify-end items-center pb-1.5 cursor-pointer transition-all border-r border-black/30 rounded-b-md shadow-sm ${
-                        isActive
-                          ? 'bg-amber-400 text-amber-900 shadow-[0_0_10px_rgba(245,158,11,0.6)]'
-                          : 'bg-zinc-100 hover:bg-zinc-50 text-zinc-500'
-                      }`}
-                      style={{ height: '95%' }}
-                    >
-                      <span className="text-[7px] font-bold font-mono">{k.keyLabel}</span>
-                    </div>
-                  );
-                })}
-
-                {/* Black keys */}
-                {blackKeys.map((k) => {
-                  const isActive = activeNotes.has(k.note);
-                  const whiteKeyWidthPercent = 100 / whiteKeys.length;
-                  const leftOffset = (k.leftIndex + 1) * whiteKeyWidthPercent;
-                  return (
-                    <div
-                      key={k.note}
-                      onMouseDown={(e) => { e.stopPropagation(); playNote(k.note); }}
-                      onMouseUp={(e) => { e.stopPropagation(); stopNote(k.note); }}
-                      onMouseLeave={(e) => activeNotes.has(k.note) && stopNote(k.note)}
-                      className={`absolute z-10 w-5 flex flex-col justify-end items-center pb-1.5 cursor-pointer transition-all border border-black rounded-b-md shadow-lg -ml-2.5 ${
-                        isActive
-                          ? 'bg-amber-500 text-amber-100 shadow-[0_0_12px_rgba(245,158,11,0.8)]'
-                          : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-500'
-                      }`}
-                      style={{ left: `${leftOffset}%`, height: '60%' }}
-                    >
-                      <span className="text-[6px] font-bold font-mono">{k.keyLabel}</span>
-                    </div>
-                  );
-                })}
+                )}
               </div>
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-center text-zinc-600 text-[9px] p-4 border border-dashed border-white/5 rounded-xl w-full">
-                <Zap size={14} className="text-zinc-700 mb-1.5" />
-                <span>Set track input to <b className="text-zinc-500">MIDI</b> to enable keyboard</span>
-              </div>
-            )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

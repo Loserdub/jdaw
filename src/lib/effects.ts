@@ -136,19 +136,32 @@ export class DelayEffect extends BaseEffect {
 export class EQEffect extends BaseEffect {
   low: BiquadFilterNode;
   mid: BiquadFilterNode;
+  highMid: BiquadFilterNode;
   high: BiquadFilterNode;
 
   constructor(ctx: BaseAudioContext) {
     super(ctx);
     this.low = ctx.createBiquadFilter();
     this.low.type = 'lowshelf';
+    this.low.frequency.value = 100;
+    this.low.gain.value = 0;
     
     this.mid = ctx.createBiquadFilter();
     this.mid.type = 'peaking';
+    this.mid.frequency.value = 1000;
+    this.mid.gain.value = 0;
     this.mid.Q.value = 1.0;
+
+    this.highMid = ctx.createBiquadFilter();
+    this.highMid.type = 'peaking';
+    this.highMid.frequency.value = 3500;
+    this.highMid.gain.value = 0;
+    this.highMid.Q.value = 1.0;
     
     this.high = ctx.createBiquadFilter();
     this.high.type = 'highshelf';
+    this.high.frequency.value = 8000;
+    this.high.gain.value = 0;
 
     this.updateRouting();
   }
@@ -157,12 +170,14 @@ export class EQEffect extends BaseEffect {
     this.input.disconnect();
     this.low.disconnect();
     this.mid.disconnect();
+    this.highMid.disconnect();
     this.high.disconnect();
 
     if (this.enabled) {
       this.input.connect(this.low);
       this.low.connect(this.mid);
-      this.mid.connect(this.high);
+      this.mid.connect(this.highMid);
+      this.highMid.connect(this.high);
       this.high.connect(this.output);
     } else {
       this.input.connect(this.output);
@@ -170,14 +185,21 @@ export class EQEffect extends BaseEffect {
   }
 
   updateParams(params: Record<string, number>) {
-    if (params.lowFreq !== undefined) this.low.frequency.value = params.lowFreq;
-    if (params.lowGain !== undefined) this.low.gain.value = params.lowGain;
+    if (params.lowFreq !== undefined) this.low.frequency.value = Math.max(20, Math.min(1000, params.lowFreq));
+    if (params.lowGain !== undefined) this.low.gain.value = Math.max(-24, Math.min(24, params.lowGain));
+    if (params.lowQ !== undefined) this.low.Q.value = Math.max(0.1, Math.min(10, params.lowQ));
     
-    if (params.midFreq !== undefined) this.mid.frequency.value = params.midFreq;
-    if (params.midGain !== undefined) this.mid.gain.value = params.midGain;
+    if (params.midFreq !== undefined) this.mid.frequency.value = Math.max(100, Math.min(8000, params.midFreq));
+    if (params.midGain !== undefined) this.mid.gain.value = Math.max(-24, Math.min(24, params.midGain));
+    if (params.midQ !== undefined) this.mid.Q.value = Math.max(0.1, Math.min(10, params.midQ));
+
+    if (params.highMidFreq !== undefined) this.highMid.frequency.value = Math.max(500, Math.min(16000, params.highMidFreq));
+    if (params.highMidGain !== undefined) this.highMid.gain.value = Math.max(-24, Math.min(24, params.highMidGain));
+    if (params.highMidQ !== undefined) this.highMid.Q.value = Math.max(0.1, Math.min(10, params.highMidQ));
     
-    if (params.highFreq !== undefined) this.high.frequency.value = params.highFreq;
-    if (params.highGain !== undefined) this.high.gain.value = params.highGain;
+    if (params.highFreq !== undefined) this.high.frequency.value = Math.max(1000, Math.min(20000, params.highFreq));
+    if (params.highGain !== undefined) this.high.gain.value = Math.max(-24, Math.min(24, params.highGain));
+    if (params.highQ !== undefined) this.high.Q.value = Math.max(0.1, Math.min(10, params.highQ));
   }
 }
 

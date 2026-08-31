@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useDAWStore } from '../lib/store';
 import { engine } from '../lib/engine';
 import { RegionView } from './RegionView';
-import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize2, Upload, LocateFixed } from 'lucide-react';
+import { importAudioFile } from '../lib/audioImport';
+import { AutomationLane } from './AutomationLane';
 
 interface TimelineProps {
   scrollRef?: React.RefObject<HTMLDivElement>;
@@ -14,12 +16,14 @@ export function Timeline({ scrollRef, onScroll }: TimelineProps) {
     tracks, regions, duration, loopEnabled, loopStart, loopEnd, setLoopRegion,
     isPlaying, isRecording, recordStartTime, bpm,
     splitRegion, joinRegions, clipboardRegion, setClipboardRegion, addRegion, snapToGrid,
-    zoom, setZoom, zoomIn, zoomOut, zoomToFit
+    zoom, setZoom, zoomIn, zoomOut, zoomToFit,
+    followPlayhead, toggleFollowPlayhead
   } = useDAWStore();
 
   const [playheadTime, setPlayheadTime] = useState(0);
   const [draggingLoop, setDraggingLoop] = useState<'start' | 'end' | 'both' | null>(null);
   const [dragOffset, setDragOffset] = useState(0);
+  const [isDragOverTimeline, setIsDragOverTimeline] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -74,14 +78,33 @@ export function Timeline({ scrollRef, onScroll }: TimelineProps) {
     return Math.round(time / snapInterval) * snapInterval;
   };
 
-  // Playhead listener
+  // Playhead listener & Page Follow (bounces to next section when hitting edge)
   useEffect(() => {
     const listener = (time: number) => {
       setPlayheadTime(time);
+
+      if (followPlayhead && (useDAWStore.getState().isPlaying || useDAWStore.getState().isRecording)) {
+        const container = containerRef.current;
+        if (!container) return;
+
+        const currentZoom = useDAWStore.getState().zoom;
+        const playheadX = time * currentZoom;
+        const scrollLeft = container.scrollLeft;
+        const clientWidth = container.clientWidth;
+
+        // If playhead crosses past the right edge (or jumps before the left edge)
+        if (playheadX >= scrollLeft + clientWidth - 4) {
+          // Bounce to next section with a 32px breathing room margin on the left
+          container.scrollLeft = playheadX - 32;
+        } else if (playheadX < scrollLeft - 10) {
+          // Looped or jumped backwards: reposition view to current playhead
+          container.scrollLeft = Math.max(0, playheadX - 32);
+        }
+      }
     };
     engine.addPlayheadListener(listener);
     return () => engine.removePlayheadListener(listener);
-  }, []);
+  }, [followPlayhead, containerRef]);
 
   // Wheel Zoom (Ctrl + Wheel or Alt + Wheel or Trackpad Pinch)
   useEffect(() => {
@@ -284,8 +307,32 @@ export function Timeline({ scrollRef, onScroll }: TimelineProps) {
     }
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>, trackId: string) => {
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>, trackId?: string) => {
     e.preventDefault();
+    e.stopPropagation();
+    setIsDragOverTimeline(false);
+
+    // 1. External files dropped
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const files = (Array.from(e.dataTransfer.files) as File[]).filter(
+        f => f.type.startsWith('audio/') || /\.(wav|mp3|ogg|flac|m4a|aac|aiff|weba)$/i.test(f.name)
+      );
+
+      if (files.length > 0) {
+        if (!containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const x = e.clientX - rect.left + containerRef.current.scrollLeft;
+        const dropTime = snapTime(Math.max(0, x / zoom));
+
+        for (let i = 0; i < files.length; i++) {
+          const destTrackId = i === 0 ? trackId : undefined;
+          await importAudioFile(files[i], destTrackId, dropTime);
+        }
+        return;
+      }
+    }
+
+    // 2. Moving existing region between tracks
     const regionId = e.dataTransfer.getData('text/plain');
     const offsetStr = e.dataTransfer.getData('text/offset');
     if (!regionId) return;
@@ -296,12 +343,57 @@ export function Timeline({ scrollRef, onScroll }: TimelineProps) {
     const rect = containerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left + containerRef.current.scrollLeft - offsetX;
     let newStart = Math.max(0, x / zoom);
-
     newStart = snapTime(newStart);
-    useDAWStore.getState().updateRegion(regionId, { trackId, start: newStart });
+
+    if (trackId) {
+      useDAWStore.getState().updateRegion(regionId, { trackId, start: newStart });
+    } else {
+      // Dropped on empty timeline space -> create new track for this region
+      const state = useDAWStore.getState();
+      const region = state.regions.find(r => r.id === regionId);
+      if (region) {
+        const newTrackId = Math.random().toString(36).substring(2, 9);
+        const originalTrack = state.tracks.find(t => t.id === region.trackId);
+        const newTrackName = originalTrack ? `${originalTrack.name} (Copy)` : `Audio ${state.tracks.length + 1}`;
+
+        useDAWStore.setState(prev => ({
+          tracks: [
+            ...prev.tracks,
+            {
+              id: newTrackId,
+              name: newTrackName,
+              volume: 0.8,
+              pan: 0,
+              muted: false,
+              solo: false,
+              armed: false,
+              inputType: region.buffer ? 'file' : 'midi',
+              effects: [],
+              sends: [],
+              synthSettings: { oscillatorType: 'square', attack: 0.01, release: 0.1 }
+            }
+          ],
+          selectedTrackId: newTrackId
+        }));
+
+        useDAWStore.getState().updateRegion(regionId, { trackId: newTrackId, start: newStart });
+      }
+    }
   };
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => e.preventDefault();
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.types.includes('Files') && !isDragOverTimeline) {
+      setIsDragOverTimeline(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOverTimeline(false);
+  };
 
   const handleFit = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -311,7 +403,14 @@ export function Timeline({ scrollRef, onScroll }: TimelineProps) {
   };
 
   return (
-    <div className="w-full h-full overflow-auto relative select-none" ref={containerRef} onScroll={onScroll}>
+    <div
+      className="w-full h-full overflow-auto relative select-none"
+      ref={containerRef}
+      onScroll={onScroll}
+      onDrop={(e) => handleDrop(e)}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+    >
       {/* ── Ruler ── */}
       <div
         className="h-9 bg-white/[0.03] border-b border-white/7 sticky top-0 z-20 relative cursor-pointer"
@@ -395,62 +494,93 @@ export function Timeline({ scrollRef, onScroll }: TimelineProps) {
         {tracks.map(track => (
           <div
             key={track.id}
-            className="border-b border-white/5 bg-white/[0.01] relative"
-            style={{ height: '140px' }}
-            onDrop={(e) => handleDrop(e, track.id)}
-            onDragOver={handleDragOver}
-            onContextMenu={(e) => handleTrackContextMenu(e, track.id)}
+            className="border-b border-white/5 bg-white/[0.01] relative flex flex-col"
+            style={{ height: track.showAutomation ? '224px' : '140px' }}
           >
-            {/* Adaptive Grid lines inside track */}
-            <div className="absolute inset-0 pointer-events-none opacity-20">
-              {Array.from({ length: totalBars }).map((_, barIdx) => {
-                const barLeft = barIdx * pixelsPerBar;
-                const isMajor = (barIdx) % barInterval === 0;
+            {/* Top track clips row (140px height) */}
+            <div
+              className="relative w-full h-[140px] shrink-0"
+              onDrop={(e) => handleDrop(e, track.id)}
+              onDragOver={handleDragOver}
+              onContextMenu={(e) => handleTrackContextMenu(e, track.id)}
+            >
+              {/* Adaptive Grid lines inside track */}
+              <div className="absolute inset-0 pointer-events-none opacity-20">
+                {Array.from({ length: totalBars }).map((_, barIdx) => {
+                  const barLeft = barIdx * pixelsPerBar;
+                  const isMajor = (barIdx) % barInterval === 0;
 
-                return (
-                  <React.Fragment key={barIdx}>
-                    <div
-                      className={`absolute top-0 bottom-0 border-l ${isMajor ? 'border-zinc-500' : 'border-zinc-700'}`}
-                      style={{ left: `${barLeft}px` }}
-                    />
-                    {showBeatLines && [1, 2, 3].map((beatOffset) => (
+                  return (
+                    <React.Fragment key={barIdx}>
                       <div
-                        key={beatOffset}
-                        className="absolute top-0 bottom-0 border-l border-zinc-800"
-                        style={{ left: `${barLeft + beatOffset * pixelsPerBeat}px` }}
+                        className={`absolute top-0 bottom-0 border-l ${isMajor ? 'border-zinc-500' : 'border-zinc-700'}`}
+                        style={{ left: `${barLeft}px` }}
                       />
-                    ))}
-                  </React.Fragment>
-                );
-              })}
+                      {showBeatLines && [1, 2, 3].map((beatOffset) => (
+                        <div
+                          key={beatOffset}
+                          className="absolute top-0 bottom-0 border-l border-zinc-800"
+                          style={{ left: `${barLeft + beatOffset * pixelsPerBeat}px` }}
+                        />
+                      ))}
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+
+              {/* Regions */}
+              {regions.filter(r => r.trackId === track.id).map(region => (
+                <RegionView
+                  key={region.id}
+                  region={region}
+                  pixelsPerSecond={zoom}
+                  onContextMenu={(e, regionId) => handleRegionContextMenu(e, regionId, track.id)}
+                />
+              ))}
+
+              {/* Real-time recording region */}
+              {isRecording && armedTrackId === track.id && playheadTime > recordStartTime && (
+                <div
+                  className="absolute top-2 h-[124px] bg-red-500/15 border border-red-500/40 rounded-xl overflow-hidden z-10"
+                  style={{
+                    left: `${recordStartTime * zoom}px`,
+                    width: `${(playheadTime - recordStartTime) * zoom}px`
+                  }}
+                >
+                  <div className="absolute top-0 left-0 px-2 py-0.5 text-[9px] font-mono text-red-300 bg-red-500/30 rounded-br-lg">
+                    REC
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Regions */}
-            {regions.filter(r => r.trackId === track.id).map(region => (
-              <RegionView
-                key={region.id}
-                region={region}
-                pixelsPerSecond={zoom}
-                onContextMenu={(e, regionId) => handleRegionContextMenu(e, regionId, track.id)}
-              />
-            ))}
-
-            {/* Real-time recording region */}
-            {isRecording && armedTrackId === track.id && playheadTime > recordStartTime && (
-              <div
-                className="absolute top-2 h-[124px] bg-red-500/15 border border-red-500/40 rounded-xl overflow-hidden z-10"
-                style={{
-                  left: `${recordStartTime * zoom}px`,
-                  width: `${(playheadTime - recordStartTime) * zoom}px`
-                }}
-              >
-                <div className="absolute top-0 left-0 px-2 py-0.5 text-[9px] font-mono text-red-300 bg-red-500/30 rounded-br-lg">
-                  REC
-                </div>
+            {/* Automation Lane (84px height) */}
+            {track.showAutomation && (
+              <div className="w-full shrink-0">
+                <AutomationLane
+                  track={track}
+                  zoom={zoom}
+                  duration={duration}
+                  playheadTime={playheadTime}
+                  snapTime={snapTime}
+                />
               </div>
             )}
           </div>
         ))}
+
+        {/* ── Empty drop zone below tracks to create new track or move region ── */}
+        <div
+          className="h-28 border-b border-dashed border-white/5 hover:border-amber-500/30 transition-colors flex items-center justify-center text-zinc-600 text-xs gap-2 select-none cursor-pointer"
+          onDrop={(e) => handleDrop(e)}
+          onDragOver={handleDragOver}
+          onClick={() => useDAWStore.getState().addTrack()}
+        >
+          <Upload size={13} className="text-zinc-600" />
+          <span className="text-[10px] font-mono text-zinc-500">
+            + Drop audio file or region here to create a new track
+          </span>
+        </div>
 
         {/* ── Playhead ── */}
         <div
@@ -472,8 +602,20 @@ export function Timeline({ scrollRef, onScroll }: TimelineProps) {
         </div>
       </div>
 
-      {/* ── Floating Zoom HUD in corner ── */}
+      {/* ── Floating Zoom & Follow HUD in corner ── */}
       <div className="sticky bottom-3 right-3 ml-auto w-fit z-40 flex items-center gap-1 bg-zinc-900/90 backdrop-blur-md border border-white/10 p-1 rounded-xl shadow-xl">
+        <button
+          onClick={toggleFollowPlayhead}
+          className={`p-1.5 rounded-lg transition-all ${
+            followPlayhead
+              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-[0_0_8px_rgba(245,158,11,0.3)]'
+              : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5'
+          }`}
+          title={followPlayhead ? 'Follow Playhead (Active - page bounces with playhead)' : 'Follow Playhead (Disabled - click to enable)'}
+        >
+          <LocateFixed size={13} />
+        </button>
+        <div className="w-px h-3.5 bg-white/10 mx-0.5" />
         <button
           onClick={zoomOut}
           className="p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-amber-400 transition-colors"
@@ -530,19 +672,25 @@ export function Timeline({ scrollRef, onScroll }: TimelineProps) {
                 Copy
               </button>
             </>
-          ) : null}
+          ) : (
+            <button
+              className={`w-full text-left px-4 py-2 transition-colors ${
+                clipboardRegion ? 'hover:bg-amber-500/15 hover:text-amber-300' : 'opacity-40 cursor-not-allowed'
+              }`}
+              onClick={() => { if (clipboardRegion) { handlePaste(); setContextMenu(null); } }}
+            >
+              Paste
+            </button>
+          )}
+        </div>
+      )}
 
-          <button
-            className={`w-full text-left px-4 py-2 transition-colors ${
-              clipboardRegion
-                ? 'hover:bg-amber-500/15 hover:text-amber-300'
-                : 'opacity-35 cursor-not-allowed'
-            }`}
-            onClick={() => { if (clipboardRegion) { handlePaste(); setContextMenu(null); } }}
-            disabled={!clipboardRegion}
-          >
-            Paste
-          </button>
+      {/* ── Drag Overlay Feedback ── */}
+      {isDragOverTimeline && (
+        <div className="absolute inset-0 bg-amber-500/10 backdrop-blur-xs border-2 border-dashed border-amber-400 flex flex-col items-center justify-center pointer-events-none z-50">
+          <Upload size={32} className="text-amber-400 mb-2 animate-bounce" />
+          <span className="text-sm font-bold text-amber-300">Drop Audio to Insert Track</span>
+          <span className="text-xs text-amber-400/80 mt-1">Inserts at playhead position or creates a new track</span>
         </div>
       )}
     </div>

@@ -19,6 +19,17 @@ export interface SynthSettings {
   release: number;
 }
 
+export interface AutomationPoint {
+  id: string;
+  time: number; // in seconds
+  value: number; // 0.0 to 1.0 (normalized)
+}
+
+export interface TrackAutomation {
+  enabled: boolean;
+  points: AutomationPoint[];
+}
+
 export interface Track {
   id: string;
   name: string;
@@ -31,6 +42,9 @@ export interface Track {
   effects: AudioEffect[];
   sends: { busId: string; amount: number }[];
   synthSettings: SynthSettings;
+  automations?: Record<string, TrackAutomation>;
+  showAutomation?: boolean;
+  activeAutomationParam?: string;
 }
 
 export interface Bus {
@@ -72,6 +86,10 @@ interface DAWState {
   bpm: number;
   metronomeEnabled: boolean;
   selectedTrackId: string | null;
+  selectedRegionId: string | null;
+  setSelectedRegionId: (id: string | null) => void;
+  activeBottomTab: 'params' | 'fx' | 'keys' | 'pianoroll' | 'eq';
+  setActiveBottomTab: (tab: 'params' | 'fx' | 'keys' | 'pianoroll' | 'eq') => void;
   
   addTrack: () => void;
   removeTrack: (id: string) => void;
@@ -82,6 +100,13 @@ interface DAWState {
   updateTrackEffect: (trackId: string, effectId: string, updates: Partial<AudioEffect>) => void;
   removeTrackEffect: (trackId: string, effectId: string) => void;
   updateTrackSend: (trackId: string, busId: string, amount: number) => void;
+
+  toggleTrackAutomation: (trackId: string) => void;
+  setTrackAutomationParam: (trackId: string, param: string) => void;
+  addAutomationPoint: (trackId: string, param: string, time: number, value: number) => void;
+  updateAutomationPoint: (trackId: string, param: string, pointId: string, updates: Partial<AutomationPoint>) => void;
+  removeAutomationPoint: (trackId: string, param: string, pointId: string) => void;
+  clearTrackAutomation: (trackId: string, param: string) => void;
 
   addBus: () => void;
   removeBus: (id: string) => void;
@@ -103,6 +128,13 @@ interface DAWState {
   setDuration: (duration: number) => void;
   setBpm: (bpm: number) => void;
   setMetronomeEnabled: (enabled: boolean) => void;
+
+  addMidiNote: (regionId: string, note: MidiNote) => void;
+  updateMidiNote: (regionId: string, noteIndex: number, updates: Partial<MidiNote>) => void;
+  removeMidiNote: (regionId: string, noteIndex: number) => void;
+  quantizeMidiNotes: (regionId: string, gridDivisionSeconds: number) => void;
+  clearMidiNotes: (regionId: string) => void;
+  createMidiRegion: (trackId: string, start?: number, duration?: number) => string;
   
   snapToGrid: boolean;
   setSnapToGrid: (enabled: boolean) => void;
@@ -112,6 +144,10 @@ interface DAWState {
   zoomIn: () => void;
   zoomOut: () => void;
   zoomToFit: (viewportWidth: number) => void;
+
+  followPlayhead: boolean;
+  setFollowPlayhead: (follow: boolean) => void;
+  toggleFollowPlayhead: () => void;
   
   loopEnabled: boolean;
   loopStart: number;
@@ -131,7 +167,20 @@ const generateId = () => Math.random().toString(36).substring(2, 9);
 const defaultEffectParams: Record<EffectType, Record<string, number>> = {
   reverb: { mix: 0.5, decay: 2.0, preDelay: 0.01 },
   delay: { mix: 0.5, time: 0.3, feedback: 0.4 },
-  eq: { lowGain: 0, midGain: 0, highGain: 0, lowFreq: 250, midFreq: 1000, highFreq: 4000 },
+  eq: {
+    lowFreq: 100,
+    lowGain: 0,
+    lowQ: 0.7,
+    midFreq: 1000,
+    midGain: 0,
+    midQ: 1.0,
+    highMidFreq: 3500,
+    highMidGain: 0,
+    highMidQ: 1.0,
+    highFreq: 8000,
+    highGain: 0,
+    highQ: 0.7
+  },
   compressor: { threshold: -24, knee: 30, ratio: 12, attack: 0.003, release: 0.25 }
 };
 
@@ -167,11 +216,18 @@ export const useDAWStore = create<DAWState>((set) => ({
     const targetZoom = Math.max(15, Math.min(600, Math.round(usableWidth / maxTime)));
     return { zoom: targetZoom };
   }),
+  followPlayhead: true,
+  setFollowPlayhead: (followPlayhead) => set({ followPlayhead }),
+  toggleFollowPlayhead: () => set((state) => ({ followPlayhead: !state.followPlayhead })),
   loopEnabled: false,
   loopStart: 0,
   loopEnd: 4,
   clipboardRegion: null,
   selectedTrackId: initialTrackId,
+  selectedRegionId: null,
+  setSelectedRegionId: (selectedRegionId) => set({ selectedRegionId }),
+  activeBottomTab: 'params',
+  setActiveBottomTab: (activeBottomTab) => set({ activeBottomTab }),
   
   addTrack: () => set((state) => {
     const newId = generateId();
@@ -190,7 +246,8 @@ export const useDAWStore = create<DAWState>((set) => ({
     return {
       tracks: newTracks,
       regions: state.regions.filter(r => r.trackId !== id),
-      selectedTrackId: newSelectedId
+      selectedTrackId: newSelectedId,
+      selectedRegionId: state.selectedRegionId && state.regions.find(r => r.id === state.selectedRegionId)?.trackId === id ? null : state.selectedRegionId
     };
   }),
   
@@ -203,6 +260,66 @@ export const useDAWStore = create<DAWState>((set) => ({
   })),
 
   setSelectedTrackId: (selectedTrackId) => set({ selectedTrackId }),
+
+  addMidiNote: (regionId, note) => set((state) => ({
+    regions: state.regions.map(r => {
+      if (r.id !== regionId) return r;
+      const currentNotes = r.midiNotes || [];
+      const updatedNotes = [...currentNotes, note].sort((a, b) => a.start - b.start);
+      return { ...r, midiNotes: updatedNotes };
+    })
+  })),
+
+  updateMidiNote: (regionId, noteIndex, updates) => set((state) => ({
+    regions: state.regions.map(r => {
+      if (r.id !== regionId || !r.midiNotes) return r;
+      const updatedNotes = r.midiNotes.map((n, idx) => idx === noteIndex ? { ...n, ...updates } : n);
+      return { ...r, midiNotes: updatedNotes };
+    })
+  })),
+
+  removeMidiNote: (regionId, noteIndex) => set((state) => ({
+    regions: state.regions.map(r => {
+      if (r.id !== regionId || !r.midiNotes) return r;
+      return { ...r, midiNotes: r.midiNotes.filter((_, idx) => idx !== noteIndex) };
+    })
+  })),
+
+  quantizeMidiNotes: (regionId, gridDivisionSeconds) => set((state) => ({
+    regions: state.regions.map(r => {
+      if (r.id !== regionId || !r.midiNotes) return r;
+      const quantized = r.midiNotes.map(n => {
+        const snappedStart = Math.max(0, Math.round(n.start / gridDivisionSeconds) * gridDivisionSeconds);
+        const minDuration = Math.max(0.05, gridDivisionSeconds);
+        const snappedDuration = Math.max(minDuration, Math.round(n.duration / gridDivisionSeconds) * gridDivisionSeconds);
+        return { ...n, start: snappedStart, duration: snappedDuration };
+      }).sort((a, b) => a.start - b.start);
+      return { ...r, midiNotes: quantized };
+    })
+  })),
+
+  clearMidiNotes: (regionId) => set((state) => ({
+    regions: state.regions.map(r => r.id === regionId ? { ...r, midiNotes: [] } : r)
+  })),
+
+  createMidiRegion: (trackId, start = 0, duration = 8) => {
+    const newId = generateId();
+    set((state) => ({
+      regions: [
+        ...state.regions,
+        {
+          id: newId,
+          trackId,
+          start,
+          duration,
+          midiNotes: []
+        }
+      ],
+      selectedRegionId: newId,
+      activeBottomTab: 'pianoroll'
+    }));
+    return newId;
+  },
 
   addTrackEffect: (trackId, type) => set((state) => ({
     tracks: state.tracks.map(t => t.id === trackId ? {
@@ -234,6 +351,75 @@ export const useDAWStore = create<DAWState>((set) => ({
       } else {
         return { ...t, sends: [...t.sends, { busId, amount }] };
       }
+    })
+  })),
+
+  toggleTrackAutomation: (trackId) => set((state) => ({
+    tracks: state.tracks.map(t => t.id === trackId ? {
+      ...t,
+      showAutomation: !t.showAutomation,
+      activeAutomationParam: t.activeAutomationParam || 'volume'
+    } : t)
+  })),
+
+  setTrackAutomationParam: (trackId, param) => set((state) => ({
+    tracks: state.tracks.map(t => t.id === trackId ? {
+      ...t,
+      activeAutomationParam: param
+    } : t)
+  })),
+
+  addAutomationPoint: (trackId, param, time, value) => set((state) => ({
+    tracks: state.tracks.map(t => {
+      if (t.id !== trackId) return t;
+      const automations = t.automations ? { ...t.automations } : {};
+      const lane = automations[param] ? { ...automations[param] } : { enabled: true, points: [] };
+      const newPoint: AutomationPoint = {
+        id: generateId(),
+        time: Math.max(0, parseFloat(time.toFixed(3))),
+        value: Math.max(0, Math.min(1, parseFloat(value.toFixed(3))))
+      };
+      const updatedPoints = [...lane.points, newPoint].sort((a, b) => a.time - b.time);
+      automations[param] = { ...lane, points: updatedPoints };
+      return { ...t, automations };
+    })
+  })),
+
+  updateAutomationPoint: (trackId, param, pointId, updates) => set((state) => ({
+    tracks: state.tracks.map(t => {
+      if (t.id !== trackId || !t.automations || !t.automations[param]) return t;
+      const automations = { ...t.automations };
+      const lane = { ...automations[param] };
+      const updatedPoints = lane.points.map(p => {
+        if (p.id !== pointId) return p;
+        return {
+          ...p,
+          ...updates,
+          time: updates.time !== undefined ? Math.max(0, parseFloat(updates.time.toFixed(3))) : p.time,
+          value: updates.value !== undefined ? Math.max(0, Math.min(1, parseFloat(updates.value.toFixed(3)))) : p.value
+        };
+      }).sort((a, b) => a.time - b.time);
+      automations[param] = { ...lane, points: updatedPoints };
+      return { ...t, automations };
+    })
+  })),
+
+  removeAutomationPoint: (trackId, param, pointId) => set((state) => ({
+    tracks: state.tracks.map(t => {
+      if (t.id !== trackId || !t.automations || !t.automations[param]) return t;
+      const automations = { ...t.automations };
+      const lane = { ...automations[param] };
+      automations[param] = { ...lane, points: lane.points.filter(p => p.id !== pointId) };
+      return { ...t, automations };
+    })
+  })),
+
+  clearTrackAutomation: (trackId, param) => set((state) => ({
+    tracks: state.tracks.map(t => {
+      if (t.id !== trackId || !t.automations || !t.automations[param]) return t;
+      const automations = { ...t.automations };
+      delete automations[param];
+      return { ...t, automations };
     })
   })),
 
